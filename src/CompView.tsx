@@ -495,6 +495,54 @@ function Sym({ df, c, r, w, cy, on }: { df: CompDef; c: Comp; r?: RT; w: number;
           <circle cx={cx + 14} cy={cy} r={4} fill="#fff" />
         </g>
       );
+    case 'pv':
+      return (
+        <g {...sw}>
+          <rect x={cx - 18} y={cy - 12} width={36} height={24} fill={on ? '#fef9c3' : 'none'} />
+          <line x1={cx - 18} y1={cy + 12} x2={cx + 18} y2={cy - 12} />
+          <path d={`M${cx - 4},${cy - 22} l6,-6 M${cx + 4},${cy - 20} l6,-6`} />
+          <path d={`M${cx + 2},${cy - 30} l0,2 l-2,0 M${cx + 10},${cy - 28} l0,2 l-2,0`} />
+          <text x={cx + 10} y={cy + 9} fontSize={7} textAnchor="middle" fill={k} stroke="none" fontWeight={700}>=</text>
+        </g>
+      );
+    case 'pvinv':
+    case 'hybrid':
+      return (
+        <g {...sw}>
+          <rect x={cx - 16} y={cy - 16} width={32} height={32} fill={on ? '#ecfeff' : 'none'} />
+          <line x1={cx - 16} y1={cy + 16} x2={cx + 16} y2={cy - 16} />
+          <path d={`M${cx - 13},${cy - 8} h9 M${cx - 13},${cy - 4} h9`} />
+          <path d={`M${cx + 2},${cy + 9} c2,-4 3,-4 5,0 s3,4 5,0`} />
+          {df.symbol === 'hybrid' && <path d={`M${cx - 22},${cy + 20} h6 M${cx - 20},${cy + 24} h2`} />}
+        </g>
+      );
+    case 'bess':
+      return (
+        <g {...sw}>
+          <line x1={cx - 20} y1={cy} x2={cx - 8} y2={cy} />
+          <line x1={cx - 8} y1={cy - 12} x2={cx - 8} y2={cy + 12} />
+          <line x1={cx - 2} y1={cy - 6} x2={cx - 2} y2={cy + 6} strokeWidth={3} />
+          <line x1={cx + 4} y1={cy - 12} x2={cx + 4} y2={cy + 12} />
+          <line x1={cx + 10} y1={cy - 6} x2={cx + 10} y2={cy + 6} strokeWidth={3} />
+          <line x1={cx + 10} y1={cy} x2={cx + 20} y2={cy} />
+        </g>
+      );
+    case 'pvcomb':
+      return (
+        <g {...sw}>
+          <rect x={cx - 22} y={cy - 18} width={44} height={36} strokeDasharray="3 2" />
+          <rect x={cx - 14} y={cy - 12} width={10} height={6} />
+          <rect x={cx - 14} y={cy + 6} width={10} height={6} />
+          {contact(on, false, cx + 2, cx + 14)}
+        </g>
+      );
+    case 'dciso':
+      return (
+        <g {...sw}>
+          {contact(on, false, cx - 12, cx + 12)}
+          <text x={cx} y={cy + 16} fontSize={8} textAnchor="middle" fill={k} stroke="none" fontWeight={700}>DC</text>
+        </g>
+      );
     case 'cloud':
       return null;
     default:
@@ -607,6 +655,93 @@ export const CompView = React.memo(function CompView({ c, df, sim, symbol, selec
       }
       case 'battery':
         return <Lcd x={x0} y={y0} w={iw} h={20} text="24.0V" on={running} />;
+      case 'pv': {
+        const irr = running ? r?.irr ?? 0 : +c.props.irr || 0;
+        const kwp = ((+c.props.modules || 0) * (+c.props.wp || 0)) / 1000;
+        const sun = irr > 600 ? '#facc15' : irr > 20 ? '#fde68a' : '#475569';
+        const cols = 6;
+        const cw = (iw - 22) / cols;
+        return (
+          <Ctl id={c.id} onCtl={onCtl}>
+            <rect x={x0} y={y0 - 4} width={iw - 22} height={30} rx={2} fill="#1e3a8a" stroke="#93c5fd" strokeWidth={0.8} />
+            {Array.from({ length: cols - 1 }, (_, i) => (
+              <line key={i} x1={x0 + cw * (i + 1)} y1={y0 - 4} x2={x0 + cw * (i + 1)} y2={y0 + 26} stroke="#60a5fa" strokeWidth={0.6} />
+            ))}
+            <line x1={x0} y1={y0 + 11} x2={x0 + iw - 22} y2={y0 + 11} stroke="#60a5fa" strokeWidth={0.6} />
+            <circle cx={x1 - 9} cy={y0 + 4} r={7} fill={sun} />
+            {irr > 20 && [0, 60, 120, 180, 240, 300].map((a) => (
+              <line
+                key={a}
+                x1={x1 - 9 + Math.cos((a * Math.PI) / 180) * 9}
+                y1={y0 + 4 + Math.sin((a * Math.PI) / 180) * 9}
+                x2={x1 - 9 + Math.cos((a * Math.PI) / 180) * 12}
+                y2={y0 + 4 + Math.sin((a * Math.PI) / 180) * 12}
+                stroke={sun}
+                strokeWidth={1.4}
+              />
+            ))}
+            <text x={x0} y={y0 + 38} fontSize={7.5} fill="#94a3b8" className="mono">
+              {running ? `${fmt(irr, 0)} W/m² · ${fmt((r?.powerW ?? 0) / 1000, 2)} kW` : `${c.props.modules}×${c.props.wp}Wp = ${fmt(kwp, 2)} kWp`}
+            </text>
+            <text x={x0} y={y0 + 48} fontSize={6.5} fill="#64748b">
+              {c.props.sun === 'day' ? 'โหมดกลางวัน/กลางคืน' : 'คลิก: แดดจัด → เมฆ → กลางคืน'}
+            </text>
+          </Ctl>
+        );
+      }
+      case 'pvinv':
+      case 'hybrid': {
+        const on = !!r?.on;
+        const st = !running
+          ? 'STANDBY'
+          : r?.fault ? 'FAULT'
+          : on ? (b === 'hybrid' && !r?.inOk ? 'BACKUP (EPS)' : (r?.pvW ?? 0) > 1 ? 'GENERATING' : 'GRID ONLY')
+          : c.props.on === false ? 'OFF'
+          : b === 'pvinv' && !r?.inOk ? 'NO GRID' : 'WAITING SUN';
+        const col = !running ? '#475569' : on ? (b === 'hybrid' && !r?.inOk ? '#fbbf24' : '#4ade80') : '#f87171';
+        const kw = (v?: number) => fmt((v ?? 0) / 1000, 2);
+        return (
+          <>
+            <Ctl id={c.id} onCtl={onCtl}>
+              <Lcd x={x0} y={y0 - 4} w={iw} h={28} text={running ? `PV ${kw(r?.pvW)} kW` : `${c.props.kw} kW`} sub={st} color={col} on={running} size={10} />
+            </Ctl>
+            {running && b === 'hybrid' && (
+              <g className="mono" fontSize={7.5}>
+                <text x={x0} y={y0 + 34} fill="#94a3b8">LOAD {kw(r?.loadW)} kW</text>
+                <text x={x0} y={y0 + 46} fill={(r?.batW ?? 0) >= 0 ? '#4ade80' : '#fbbf24'}>
+                  BAT {(r?.batW ?? 0) >= 0 ? '+' : ''}{kw(r?.batW)} kW {r?.soc !== undefined ? `· ${fmt(r.soc, 0)}%` : '· ไม่มีแบต'}
+                </text>
+                <text x={x0} y={y0 + 58} fill={(r?.gridW ?? 0) < 0 ? '#38bdf8' : '#94a3b8'}>
+                  GRID {(r?.gridW ?? 0) < 0 ? `ขาย ${kw(-(r?.gridW ?? 0))}` : `ซื้อ ${kw(r?.gridW)}`} kW
+                </text>
+                <text x={x0} y={y0 + 70} fill="#64748b">Yield {fmt(r?.kwh ?? 0, 3)} kWh</text>
+              </g>
+            )}
+            {running && b === 'pvinv' && (
+              <text x={x0} y={y0 + 36} fontSize={7.5} fill="#94a3b8" className="mono">
+                {fmt(Math.abs(r?.current ?? 0), 1)} A · {fmt(r?.kwh ?? 0, 3)} kWh
+              </text>
+            )}
+          </>
+        );
+      }
+      case 'bess': {
+        const soc = running ? r?.soc ?? +c.props.soc : +c.props.soc;
+        const bw = r?.batW ?? 0;
+        return (
+          <>
+            <rect x={x0} y={y0 - 2} width={iw - 4} height={14} rx={2} fill="#0f172a" stroke="#334155" />
+            <rect x={iw + x0 - 4} y={y0 + 2} width={4} height={6} fill="#334155" />
+            <rect x={x0 + 1} y={y0 - 1} width={Math.max(0, (iw - 6) * (soc / 100))} height={12} rx={1.5} fill={soc > 30 ? '#22c55e' : soc > 10 ? '#f59e0b' : '#ef4444'} />
+            <text x={x0 + (iw - 4) / 2} y={y0 + 8} textAnchor="middle" fontSize={7.5} fill="#fff" className="mono" fontWeight={700}>
+              {fmt(soc, 0)}%
+            </text>
+            <text x={x0} y={y0 + 24} fontSize={7} fill={!running ? '#64748b' : bw > 1 ? '#4ade80' : bw < -1 ? '#fbbf24' : '#94a3b8'} className="mono">
+              {!running ? `${c.props.kwh} kWh LFP` : bw > 1 ? `CHARGE ${fmt(bw / 1000, 2)} kW` : bw < -1 ? `DISCHARGE ${fmt(-bw / 1000, 2)} kW` : 'IDLE'}
+            </text>
+          </>
+        );
+      }
       case 'psu':
         return (
           <Lcd

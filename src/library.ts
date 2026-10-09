@@ -62,6 +62,7 @@ function def(o: DefIn): CompDef {
 export const CATEGORIES = [
   { id: 'power', name: 'แหล่งจ่ายไฟ', en: 'Power Sources' },
   { id: 'mv', name: 'ระบบไฟฟ้าโรงงาน', en: 'Switchgear & MDB' },
+  { id: 'solar', name: 'ระบบโซลาร์เซลล์', en: 'Solar PV & Storage' },
   { id: 'protect', name: 'อุปกรณ์ป้องกัน', en: 'Protection' },
   { id: 'control', name: 'สวิตช์ & ควบคุม', en: 'Switching & Control' },
   { id: 'sensor', name: 'เซนเซอร์ภาคสนาม', en: 'Field Sensors' },
@@ -317,6 +318,24 @@ export const DEFS: CompDef[] = [
     w: 150,
     desc: 'สลับแหล่งจ่ายอัตโนมัติ Grid ↔ Generator',
   }),
+  def({
+    type: 'pv_array', cat: 'power', name: 'Solar PV Array', short: 'SOLAR PV', icon: 'solar', symbol: 'pv', beh: 'pv',
+    brands: [
+      ['LONGi', 'Hi-MO 6 LR5-72HTH 550W'], ['Jinko Solar', 'Tiger Neo N-type 580W'], ['Trina Solar', 'Vertex N 575W'],
+      ['JA Solar', 'DeepBlue 4.0 Pro 580W'], ['Canadian Solar', 'TOPBiHiKu7 600W'], ['Huasun', 'Himalaya HJT 700W'],
+    ],
+    r: [['PVP', 'PV+', 'PV+'], ['PVM', 'PV−', 'PV-'], ['PE', 'PE', 'PE']],
+    w: 170,
+    props: { modules: 10, wp: 550, sun: 'manual', irr: 850, day: 120 },
+    pd: [
+      { key: 'modules', label: 'จำนวนแผง', type: 'number', min: 1 },
+      { key: 'wp', label: 'กำลังต่อแผง', type: 'number', unit: 'Wp', min: 1 },
+      { key: 'sun', label: 'แสงแดด', type: 'select', options: ['manual', 'day'] },
+      { key: 'irr', label: 'ความเข้มแสง (สูงสุด)', type: 'number', unit: 'W/m²', min: 0, max: 1200 },
+      { key: 'day', label: 'ความยาว 1 วัน (โหมด day)', type: 'number', unit: 's', min: 20 },
+    ],
+    desc: 'แผงโซลาร์เซลล์ต่ออนุกรมเป็นสตริง จ่ายไฟ DC แรงดันสูงตามความเข้มแสง — คลิกเพื่อเปลี่ยนแดด/เมฆ/กลางคืน',
+  }),
 
   // ───────────── FACTORY MV / MDB ─────────────
   def({
@@ -380,6 +399,100 @@ export const DEFS: CompDef[] = [
       { key: 'f4', label: 'ฟีดเดอร์ F4', type: 'bool' },
     ],
     desc: 'ตู้เมนแรงต่ำ รับไฟจากหม้อแปลง แล้วแยก 3 เฟสออก 4 ฟีดเดอร์ พร้อมแท็ป 230V สำหรับวงจรควบคุม',
+  }),
+
+  // ───────────── SOLAR PV & STORAGE ─────────────
+  def({
+    type: 'pv_comb', cat: 'solar', name: 'PV Combiner Box (DC fuse + SPD)', short: 'DC COMBINER', icon: 'combiner', symbol: 'pvcomb', beh: 'switch',
+    brands: [['ABB', 'Solar Combiner 2S 1000V'], ['Schneider Electric', 'Acti9 PV Box'], ['Phoenix Contact', 'SOLARCHECK SC'], ['Weidmüller', 'PV Next'], ['Suntree', 'SHLX-PV 2/2']],
+    l: [['ip', 'PV+ in', 'PV+'], ['im', 'PV− in', 'PV-']],
+    r: [['op', 'PV+ out', 'PV+'], ['om', 'PV− out', 'PV-'], ['PE', 'PE', 'PE']],
+    w: 160,
+    links: { main: [['ip', 'op'], ['im', 'om']] },
+    props: { on: true },
+    pd: [{ key: 'on', label: 'DC isolator ON', type: 'bool' }],
+    desc: 'ตู้รวมสตริง มีฟิวส์ DC ทั้งขั้ว + และ − กันฟ้าผ่า (SPD Type 2 DC) และสวิตช์ตัดวงจร DC',
+  }),
+  def({
+    type: 'dc_iso', cat: 'solar', name: 'DC Isolator Switch 1000V', short: 'DC ISOLATOR', icon: 'switch', symbol: 'dciso', beh: 'switch',
+    brands: [['IMO', 'SI16-PEL64R-2'], ['ABB', 'OTDC 32'], ['Eaton', 'SOL30-SAFETY'], ['Santon', 'SI-25 DC'], ['Schneider Electric', 'TeSys VLS']],
+    l: [['ip', 'PV+ in', 'PV+'], ['im', 'PV− in', 'PV-']],
+    r: [['op', 'PV+ out', 'PV+'], ['om', 'PV− out', 'PV-']],
+    w: 150,
+    links: { main: [['ip', 'op'], ['im', 'om']] },
+    props: { on: true },
+    pd: [{ key: 'on', label: 'ON', type: 'bool' }],
+    desc: 'สวิตช์ตัดไฟ DC 2 ขั้ว ติดหน้าอินเวอร์เตอร์ ใช้ตัดแผงออกก่อนซ่อมบำรุง — คลิกเพื่อเปิด/ปิด',
+  }),
+  def({
+    type: 'pvinv1', cat: 'solar', name: 'On-grid Inverter 1φ', short: 'INVERTER 1φ', icon: 'inverter', symbol: 'pvinv', beh: 'pvinv',
+    brands: [
+      ['Huawei', 'SUN2000-5KTL-L1'], ['SMA', 'Sunny Boy 5.0'], ['Growatt', 'MIN 5000TL-X'], ['Fronius', 'Primo 5.0-1'],
+      ['SolarEdge', 'SE5000H'], ['Sungrow', 'SG5.0RS'], ['GoodWe', 'GW5000-DNS-30'],
+    ],
+    l: [['PVP', 'PV+', 'PV+'], ['PVM', 'PV−', 'PV-']],
+    r: [['L', 'L', 'L'], ['N', 'N', 'N'], ['PE', 'PE', 'PE']],
+    b: [['ETH', 'ETH', 'ETH'], ['485', '485', '485']],
+    w: 170,
+    props: { on: true, kw: 5 },
+    pd: [
+      { key: 'on', label: 'เปิดอินเวอร์เตอร์', type: 'bool' },
+      { key: 'kw', label: 'พิกัด AC', type: 'number', unit: 'kW', min: 0.5 },
+    ],
+    desc: 'อินเวอร์เตอร์ออนกริด แปลง DC จากแผงเป็น AC จ่ายขนานกับการไฟฟ้า หยุดจ่ายทันทีเมื่อไฟดับ (Anti-islanding)',
+  }),
+  def({
+    type: 'pvinv3', cat: 'solar', name: 'On-grid Inverter 3φ', short: 'INVERTER 3φ', icon: 'inverter', symbol: 'pvinv', beh: 'pvinv',
+    brands: [
+      ['Huawei', 'SUN2000-50KTL-M3'], ['SMA', 'Sunny Tripower CORE1 50'], ['Sungrow', 'SG50CX'], ['Growatt', 'MAX 50KTL3 LV'],
+      ['Fronius', 'Tauro 50-3'], ['Solis', 'S5-GC50K'], ['ABB', 'PVS-50-TL'],
+    ],
+    l: [['PVP', 'PV+', 'PV+'], ['PVM', 'PV−', 'PV-']],
+    r: [['P3', 'L1-L3', 'P3'], ['N', 'N', 'N'], ['PE', 'PE', 'PE']],
+    b: [['ETH', 'ETH', 'ETH'], ['485', '485', '485']],
+    w: 180,
+    props: { on: true, kw: 50 },
+    pd: [
+      { key: 'on', label: 'เปิดอินเวอร์เตอร์', type: 'bool' },
+      { key: 'kw', label: 'พิกัด AC', type: 'number', unit: 'kW', min: 1 },
+    ],
+    desc: 'อินเวอร์เตอร์ออนกริด 3 เฟส สำหรับโรงงาน/อาคาร จ่ายเข้าบัส 400V ขนานกับหม้อแปลง หยุดเมื่อไฟการไฟฟ้าดับ',
+  }),
+  def({
+    type: 'hybrid', cat: 'solar', name: 'Hybrid Inverter 1φ + Backup', short: 'HYBRID INV', icon: 'inverter', symbol: 'hybrid', beh: 'hybrid',
+    brands: [
+      ['Huawei', 'SUN2000-5KTL-L1 + Backup Box'], ['Deye', 'SUN-5K-SG04LP1'], ['Growatt', 'SPH 5000'], ['GoodWe', 'GW5048-EM'],
+      ['Victron', 'MultiPlus-II 48/5000'], ['Sungrow', 'SH5.0RS'], ['SMA', 'Sunny Island 6.0H'],
+    ],
+    l: [['PVP', 'PV+', 'PV+'], ['PVM', 'PV−', 'PV-'], ['BP', 'BAT+', 'PV+'], ['BM', 'BAT−', 'PV-'], ['GL', 'GRID L', 'L'], ['GN', 'GRID N', 'N']],
+    r: [['OL', 'LOAD L', 'L'], ['ON', 'LOAD N', 'N'], ['PE', 'PE', 'PE']],
+    b: [['ETH', 'ETH', 'ETH'], ['485', '485', '485']],
+    w: 190,
+    props: { on: true, kw: 5, reserve: 20, export: true },
+    pd: [
+      { key: 'on', label: 'เปิดอินเวอร์เตอร์', type: 'bool' },
+      { key: 'kw', label: 'พิกัด', type: 'number', unit: 'kW', min: 1 },
+      { key: 'reserve', label: 'สำรองแบตไว้ใช้ตอนไฟดับ', type: 'number', unit: '%', min: 0, max: 90 },
+      { key: 'export', label: 'ขายไฟส่วนเกินเข้ากริด', type: 'bool' },
+    ],
+    desc: 'ไฮบริดอินเวอร์เตอร์ ใช้ไฟแดดก่อน ส่วนเกินชาร์จแบต ขาดค่อยดึงกริด ไฟดับแล้วจ่ายโหลดสำรองต่อจากแดด+แบต',
+  }),
+  def({
+    type: 'bess', cat: 'solar', name: 'Battery Storage LiFePO4 51.2V', short: 'BATTERY LFP', icon: 'battery', symbol: 'bess', beh: 'bess',
+    brands: [
+      ['BYD', 'Battery-Box Premium LVS 8.0'], ['Pylontech', 'US5000'], ['Huawei', 'LUNA2000-5-S0'], ['Dyness', 'PowerBox Pro'],
+      ['Deye', 'SE-G5.1 Pro'], ['Growatt', 'ARK 5.1L'],
+    ],
+    r: [['BP', 'BAT+', 'PV+'], ['BM', 'BAT−', 'PV-']],
+    w: 160,
+    props: { kwh: 5, soc: 60, maxkw: 5, accel: 60 },
+    pd: [
+      { key: 'kwh', label: 'ความจุ', type: 'number', unit: 'kWh', min: 0.5 },
+      { key: 'soc', label: 'ประจุเริ่มต้น (SOC)', type: 'number', unit: '%', min: 0, max: 100 },
+      { key: 'maxkw', label: 'ชาร์จ/จ่ายสูงสุด', type: 'number', unit: 'kW', min: 0.5 },
+      { key: 'accel', label: 'เร่งเวลาจำลอง', type: 'number', unit: '×', min: 1 },
+    ],
+    desc: 'แบตเตอรี่ลิเธียมฟอสเฟตพร้อม BMS ต่อกับขั้ว BAT ของไฮบริดอินเวอร์เตอร์ เก็บไฟแดดไว้ใช้กลางคืนหรือตอนไฟดับ',
   }),
 
   // ───────────── PROTECTION ─────────────
@@ -958,7 +1071,7 @@ export const DEF_MAP: Record<string, CompDef> = Object.fromEntries(DEFS.map((d) 
 export const ALL_BRANDS = Array.from(new Set(DEFS.flatMap((d) => d.brands.map((b) => b.brand)))).sort((a, b) => a.localeCompare(b));
 
 export const KIND_GROUP: Record<PortKind, string> = {
-  L: 'pow', N: 'pow', PE: 'pow', P3: 'pow', MV: 'mv', 'DC+': 'pow', 'DC-': 'pow', X: 'pow', AI: 'ana', '485': '485', ETH: 'eth', HDMI: 'hdmi',
+  L: 'pow', N: 'pow', PE: 'pow', P3: 'pow', MV: 'mv', 'DC+': 'pow', 'DC-': 'pow', 'PV+': 'pv', 'PV-': 'pv', X: 'pow', AI: 'ana', '485': '485', ETH: 'eth', HDMI: 'hdmi',
 };
 
 export function compatible(a: PortKind, b: PortKind): boolean {
@@ -977,6 +1090,8 @@ export const KIND_COLOR: Record<PortKind, string> = {
   MV: '#fb7185',
   'DC+': '#ef4444',
   'DC-': '#6366f1',
+  'PV+': '#fb923c',
+  'PV-': '#78716c',
   X: '#cbd5e1',
   AI: '#f59e0b',
   '485': '#facc15',
@@ -992,6 +1107,8 @@ export const KIND_NAME: Record<PortKind, string> = {
   MV: 'Medium voltage 22kV',
   'DC+': '+24VDC',
   'DC-': '0V DC',
+  'PV+': 'DC power + (PV / Battery)',
+  'PV-': 'DC power − (PV / Battery)',
   X: 'Conductor (ทั่วไป)',
   AI: 'Analog 4-20mA',
   '485': 'RS485 Modbus RTU',

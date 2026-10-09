@@ -355,6 +355,15 @@ export default function App() {
         case 'gen':
           setProps(id, { on: !c.props.on });
           break;
+        case 'pv': {
+          const irr = +c.props.irr || 0;
+          setProps(id, { sun: 'manual', irr: c.props.sun === 'day' ? 1000 : irr > 600 ? 300 : irr > 20 ? 0 : 1000 });
+          break;
+        }
+        case 'pvinv':
+        case 'hybrid':
+          setProps(id, { on: c.props.on === false });
+          break;
         case 'overload':
           if (s) resetTrip(s, id);
           break;

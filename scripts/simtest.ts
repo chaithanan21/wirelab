@@ -332,6 +332,78 @@ for (const [id, drive, filler, pump, tt, sv] of [
   check('damage: replaced sensor works on 24V', !s.rt.B1.damaged && !!s.rt.B1.powered);
 }
 
+// Solar on-grid
+{
+  const d = TEMPLATES.find((t) => t.id === 'solar')!.build();
+  const s = run(d, 3);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  const crit = () => Object.values(s.activeAlarms).filter((a) => a.sev === 'crit').map((a) => a.msg);
+  const kw = (l: string) => ((r(l).powerW ?? 0) / 1000).toFixed(2) + 'kW';
+  check('solar: inverter generating', !!r('INV-1 50kW').on && (r('INV-1 50kW').pvW ?? 0) > 30000, kw('INV-1 50kW'));
+  check('solar: PV array reports output', (r('PV-ROOF 100×550W').powerW ?? 0) > 30000, kw('PV-ROOF 100×550W'));
+  check('solar: EM-PV reads reverse power', (r('EM-PV').powerW ?? 0) < -30000, kw('EM-PV'));
+  check('solar: grid import reduced by solar', (r('EM-GRID').powerW ?? 0) < 10000, kw('EM-GRID'));
+  check('solar: loads running', !!r('M1 COMPRESSOR').powered && !!r('P-1 PUMP').powered);
+  check('solar: no critical alarms', crit().length === 0, crit().join(' | '));
+  check('solar: plant solar kW', s.plant.solarKW > 30, s.plant.solarKW.toFixed(1));
+  check('solar: SCADA sees inverter tags', (s.displays[byLabel(d, 'SCADA SOLAR').id]?.tags ?? []).some((t) => t.id.endsWith(':PV')));
+  byLabel(d, 'Q3 PUMP 40A').props.on = false;
+  run(d, 4, s);
+  check('solar: exports when load drops', (r('EM-GRID').powerW ?? 0) < 0 && (r('EM-GRID').kwhExp ?? 0) > 0, kw('EM-GRID'));
+  check('solar: Q1 not tripped by reverse current', !r('Q1 SOLAR 100A').tripped, `${r('Q1 SOLAR 100A').current?.toFixed(1)}A`);
+  byLabel(d, 'PEA 400V').props.on = false;
+  run(d, 1, s);
+  check('solar: anti-islanding stops inverter', !r('INV-1 50kW').on && !r('M1 COMPRESSOR').powered);
+  check('solar: anti-islanding alarm', Object.keys(s.activeAlarms).some((k) => k.endsWith(':island')));
+  byLabel(d, 'PEA 400V').props.on = true;
+  run(d, 1, s);
+  check('solar: inverter resumes with grid', !!r('INV-1 50kW').on);
+  byLabel(d, 'QD-1 DC ISO').props.on = false;
+  run(d, 1, s);
+  check('solar: DC isolator off stops PV', !r('INV-1 50kW').on && (r('EM-GRID').powerW ?? 0) > 20000, kw('EM-GRID'));
+  byLabel(d, 'PV-ROOF 100×550W').props.irr = 0;
+  byLabel(d, 'QD-1 DC ISO').props.on = true;
+  run(d, 1, s);
+  check('solar: night = no generation, no alarm', !r('INV-1 50kW').on && crit().length === 0, crit().join(' | '));
+}
+
+// Solar hybrid + battery
+{
+  const d = TEMPLATES.find((t) => t.id === 'solarhybrid')!.build();
+  const pv = byLabel(d, 'PV-ROOF 10×550W');
+  pv.props.sun = 'manual';
+  pv.props.irr = 1000;
+  const s = run(d, 3);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  const H = 'HYB-1 5kW';
+  const crit = () => Object.values(s.activeAlarms).filter((a) => a.sev === 'crit').map((a) => a.msg);
+  const soc0 = r('BAT-1 10kWh').soc ?? 0;
+  check('hybrid: on with grid', !!r(H).on && !!r(H).inOk);
+  check('hybrid: backup loads powered', !!r('LIGHTS').powered && !!r('AIR LIVING').powered && !!r('FRIDGE').powered);
+  check('hybrid: sun charges battery', (r(H).batW ?? 0) > 1000 && (r('BAT-1 10kWh').batW ?? 0) > 1000, `${r(H).batW?.toFixed(0)}W`);
+  run(d, 3, s);
+  check('hybrid: SOC rises', (r('BAT-1 10kWh').soc ?? 0) > soc0, `${soc0.toFixed(2)} → ${r('BAT-1 10kWh').soc?.toFixed(2)}%`);
+  check('hybrid: no critical alarms', crit().length === 0, crit().join(' | '));
+  check('hybrid: cloud online', s.displays[d.comps.find((c) => c.type === 'cloud')!.id]?.status === 'ok');
+  byLabel(d, 'BAT-1 10kWh').props.soc = 100;
+  run(d, 2, s);
+  check('hybrid: full battery exports surplus', (r(H).gridW ?? 0) < -1000, `${r(H).gridW?.toFixed(0)}W`);
+  pv.props.irr = 0;
+  byLabel(d, 'BAT-1 10kWh').props.soc = 50;
+  byLabel(d, 'MEA 1φ').props.on = false;
+  run(d, 2, s);
+  check('hybrid: outage → battery keeps loads on', !!r(H).on && !!r('LIGHTS').powered && (r(H).batW ?? 0) < -1000, `${r(H).batW?.toFixed(0)}W`);
+  check('hybrid: EPS alarm', Object.keys(s.activeAlarms).some((k) => k.endsWith(':backup')));
+  byLabel(d, 'BAT-1 10kWh').props.soc = 0.6;
+  run(d, 4, s);
+  check('hybrid: empty battery → loads off', !r(H).on && !r('LIGHTS').powered);
+  check('hybrid: no-power alarm', crit().some((m) => m.includes('HYB-1')));
+  byLabel(d, 'MEA 1φ').props.on = true;
+  run(d, 2, s);
+  check('hybrid: grid back → loads on from grid', !!r(H).on && !!r('LIGHTS').powered && (r(H).gridW ?? 0) > 1000, `${r(H).gridW?.toFixed(0)}W`);
+  check('hybrid: reserve kept (no discharge below 20%)', (r(H).batW ?? 0) >= 0);
+}
+
 for (const t of TEMPLATES) {
   const d = t.build();
   const crit = checkWiring(d).filter((i) => i.sev === 'crit');

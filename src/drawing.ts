@@ -57,6 +57,9 @@ function specLine(c: Comp) {
   if (df.beh === 'vfd') return `${c.props.freq ?? 50} Hz`;
   if (df.beh === 'breaker' || df.beh === 'rcbo' || df.beh === 'fuse') return `In ${c.props.rating ?? ''} A`;
   if (df.beh === 'overload') return `Ir ${c.props.setting ?? c.props.rating ?? ''} A`;
+  if (df.beh === 'pv') return `${c.props.modules}×${c.props.wp} Wp = ${(((+c.props.modules || 0) * (+c.props.wp || 0)) / 1000).toFixed(2)} kWp`;
+  if (df.beh === 'pvinv' || df.beh === 'hybrid') return `${c.props.kw} kW`;
+  if (df.beh === 'bess') return `${c.props.kwh} kWh LFP`;
   return '';
 }
 
@@ -65,7 +68,7 @@ function portOf(design: Design, a: { c: string; p: string }): PortDef | undefine
   return comp ? DEF_MAP[comp.type]?.ports.find((p) => p.id === a.p) : undefined;
 }
 
-const RANK = ['PE', 'N', 'MV', 'P3', 'L', 'DC+', 'DC-', 'AI', 'X'];
+const RANK = ['PE', 'N', 'MV', 'P3', 'L', 'PV+', 'PV-', 'DC+', 'DC-', 'AI', 'X'];
 
 function wireStyle(pa?: PortDef, pb?: PortDef): WireStyle {
   if ((pa && COMM_KINDS.includes(pa.kind)) || (pb && COMM_KINDS.includes(pb.kind))) return WIRE_STYLES.NET;
@@ -79,6 +82,8 @@ function wireStyle(pa?: PortDef, pb?: PortDef): WireStyle {
     return /L2\b/.test(lbl) ? WIRE_STYLES.L2 : /L3\b/.test(lbl) ? WIRE_STYLES.L3 : WIRE_STYLES.L;
   }
   if (p.kind === 'AI') return WIRE_STYLES.SIG;
+  if (p.kind === 'PV+') return WIRE_STYLES.PVP;
+  if (p.kind === 'PV-') return WIRE_STYLES.PVM;
   return WIRE_STYLES.DC;
 }
 

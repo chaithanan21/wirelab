@@ -966,6 +966,118 @@ function conveyorLine(): Design {
   return { name: 'โรงงาน: ไลน์สายพานคัดแยกชิ้นงาน', comps: b.comps, wires: b.wires };
 }
 
+function solarOnGrid(): Design {
+  const b = new B();
+  const G = b.add('grid3', 20, 40, 'PEA 400V', {}, 0);
+  const EM0 = b.add('emeter', 240, 40, 'EM-GRID', {}, 0);
+  const MDB = b.add('mdb', 480, 20, 'MDB 400A', { rating: 400, f4: false }, 0);
+  b.w(G, 'P3', EM0, 'in');
+  b.w(EM0, 'out', MDB, 'IN');
+  b.w(G, 'L1', MDB, 'Lin');
+  b.w(G, 'N', MDB, 'N');
+  b.w(G, 'PE', MDB, 'PE');
+
+  const Q1 = b.add('mccb3', 780, 20, 'Q1 SOLAR 100A', { rating: 100 }, 0);
+  const EMP = b.add('emeter', 1000, 20, 'EM-PV', {}, 1);
+  const INV = b.add('pvinv3', 1240, 10, 'INV-1 50kW', { kw: 50 }, 0);
+  b.w(MDB, 'F1', Q1, 'in');
+  b.w(Q1, 'out', EMP, 'in');
+  b.w(EMP, 'out', INV, 'P3');
+  b.w(MDB, 'N', INV, 'N');
+  b.w(MDB, 'PE', INV, 'PE');
+
+  const PV = b.add('pv_array', 1240, 300, 'PV-ROOF 100×550W', { modules: 100, wp: 550, irr: 850 }, 0);
+  const CB = b.add('pv_comb', 1480, 300, 'CB-1 COMBINER', {}, 0);
+  const DCI = b.add('dc_iso', 1480, 140, 'QD-1 DC ISO', {}, 0);
+  b.w(PV, 'PVP', CB, 'ip');
+  b.w(PV, 'PVM', CB, 'im');
+  b.w(PV, 'PE', CB, 'PE');
+  b.w(CB, 'PE', MDB, 'PE');
+  b.w(CB, 'op', DCI, 'ip');
+  b.w(CB, 'om', DCI, 'im');
+  b.w(DCI, 'op', INV, 'PVP');
+  b.w(DCI, 'om', INV, 'PVM');
+
+  const Q2 = b.add('mccb3', 780, 240, 'Q2 COMPRESSOR 63A', { rating: 63 }, 0);
+  const M1 = b.add('motor3', 1000, 250, 'M1 COMPRESSOR', { kw: 22 }, 0);
+  b.w(MDB, 'F2', Q2, 'in');
+  b.w(Q2, 'out', M1, 'U');
+  b.w(MDB, 'PE', M1, 'PE');
+  const Q3 = b.add('mccb3', 780, 420, 'Q3 PUMP 40A', { rating: 40 }, 1);
+  const P1 = b.add('pump3', 1000, 430, 'P-1 PUMP', { kw: 15 }, 0);
+  b.w(MDB, 'F3', Q3, 'in');
+  b.w(Q3, 'out', P1, 'U');
+  b.w(MDB, 'PE', P1, 'PE');
+
+  const Q4 = b.add('mcb2', 480, 300, 'Q4 CTRL 6A', { rating: 6 }, 0);
+  const PSU = b.add('psu24', 480, 460, 'PSU-1', {}, 1);
+  b.w(MDB, 'L', Q4, 'L1');
+  b.w(MDB, 'N', Q4, 'N1');
+  b.w(Q4, 'L2', PSU, 'L');
+  b.w(Q4, 'N2', PSU, 'N');
+  const ESW = b.add('eswitch', 240, 300, 'SW-ETH-1', {}, 0);
+  const SC = b.add('scada', 20, 520, 'SCADA SOLAR', {}, 2);
+  const RT = b.add('router', 240, 620, 'RT-1 4G', {}, 0);
+  b.add('cloud', 480, 640, 'FusionSolar CLOUD', {}, 0);
+  b.w(Q4, 'L2', SC, 'L');
+  b.w(Q4, 'N2', SC, 'N');
+  for (const n of [ESW, RT]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(INV, 'ETH', ESW, 'E1');
+  b.w(EM0, 'ETH', ESW, 'E2');
+  b.w(EMP, 'ETH', ESW, 'E3');
+  b.w(ESW, 'E4', SC, 'ETH');
+  b.w(ESW, 'E5', RT, 'E1');
+  return { name: 'Solar on-grid โรงงาน 50kW', comps: b.comps, wires: b.wires };
+}
+
+function solarHybrid(): Design {
+  const b = new B();
+  const G = b.add('grid1', 20, 40, 'MEA 1φ', {}, 1);
+  const Q0 = b.add('mcb2', 220, 40, 'MAIN 40A', { rating: 40 }, 0);
+  b.w(G, 'L', Q0, 'L1');
+  b.w(G, 'N', Q0, 'N1');
+
+  const PV = b.add('pv_array', 220, 300, 'PV-ROOF 10×550W', { modules: 10, wp: 550, sun: 'day', irr: 950, day: 120 }, 0);
+  const DCI = b.add('dc_iso', 460, 300, 'QD-1 DC ISO', {}, 0);
+  const BAT = b.add('bess', 460, 480, 'BAT-1 10kWh', { kwh: 10, soc: 50, maxkw: 5 }, 1);
+  const HY = b.add('hybrid', 720, 60, 'HYB-1 5kW', { kw: 5, reserve: 20 }, 1);
+  b.w(Q0, 'L2', HY, 'GL');
+  b.w(Q0, 'N2', HY, 'GN');
+  b.w(PV, 'PVP', DCI, 'ip');
+  b.w(PV, 'PVM', DCI, 'im');
+  b.w(DCI, 'op', HY, 'PVP');
+  b.w(DCI, 'om', HY, 'PVM');
+  b.w(BAT, 'BP', HY, 'BP');
+  b.w(BAT, 'BM', HY, 'BM');
+  b.w(PV, 'PE', G, 'PE');
+  b.w(HY, 'PE', G, 'PE');
+
+  const Q1 = b.add('mcb2', 1000, 40, 'BACKUP 32A', { rating: 32 }, 0);
+  b.w(HY, 'OL', Q1, 'L1');
+  b.w(HY, 'ON', Q1, 'N1');
+  const LP = b.add('lamp', 1240, 20, 'LIGHTS', { power: 120 }, 0);
+  const AC = b.add('aircon', 1240, 140, 'AIR LIVING', { power: 1100 }, 0);
+  const FR = b.add('socket', 1240, 280, 'FRIDGE', { power: 250 }, 1);
+  for (const n of [LP, AC, FR]) {
+    b.w(Q1, 'L2', n, 'L');
+    b.w(Q1, 'N2', n, 'N');
+  }
+  b.w(FR, 'PE', G, 'PE');
+
+  const PSU = b.add('psu24', 1000, 260, 'PSU-1', {}, 1);
+  b.w(Q1, 'L2', PSU, 'L');
+  b.w(Q1, 'N2', PSU, 'N');
+  const RT = b.add('router', 1000, 420, 'RT-1 WIFI/4G', {}, 0);
+  b.add('cloud', 1240, 440, 'SOLAR APP', {}, 0);
+  b.w(RT, 'VP', PSU, 'P');
+  b.w(RT, 'VM', PSU, 'M');
+  b.w(HY, 'ETH', RT, 'E1');
+  return { name: 'Solar hybrid + แบตเตอรี่ (บ้าน)', comps: b.comps, wires: b.wires };
+}
+
 export const TEMPLATES: Template[] = [
   { id: 'field', name: 'Sensor → PLC → HMI', desc: 'พร็อกซิมิตี้ส่งเข้า PLC แล้วไฟแสดงสถานะและค่าขึ้น HMI', group: 'simple', build: sensorPlcHmi },
   { id: 'relay', name: 'Relay & motor control', desc: 'สวิตช์ 24V สั่งคอนแทคเตอร์เดินมอเตอร์ 3 เฟส', group: 'simple', build: relayMotor },
@@ -978,6 +1090,8 @@ export const TEMPLATES: Template[] = [
   { id: 'mdbmon', name: 'Monitor MDB · Power meter → Modbus → SCADA', desc: 'มิเตอร์เมนหลังหม้อแปลง + มิเตอร์ย่อย 2 ฟีดเดอร์ ต่อ RS485 แบบพ่วงเข้า Gateway → Ethernet → SCADA และ 4G → Cloud พร้อมสถานะคอนแทคเตอร์เข้า PLC', group: 'plant', build: mdbMonitoring },
   { id: 'pet', name: 'Krones PET filling line · Blow-Fill-Cap-Label-Pack', desc: 'ไลน์น้ำดื่ม PET: Contiform เป่าขวด (อบพรีฟอร์มคุม 105°C) + คอมเพรสเซอร์ 40 bar → Modulfill บรรจุ+ปิดฝา คุมระดับถังบรรจุ → Checkmat คัดขวดน้ำขาด → Contiroll ฉลาก → Variopac แพ็ค', group: 'plant', build: kronesPet },
   { id: 'beer', name: 'Beer bottle filling line · Washer-Fill-Crown-Pasteurise', desc: 'ไลน์เบียร์ขวดแก้ว: เครื่องล้างขวด → EBI ตรวจขวดเปล่า → Filler แรงดัน CO₂ + Crowner ปิดฝาจีบ คุมระดับถัง → Tunnel pasteuriser คุม 62°C → ฉลาก → แพ็คลังขวด + ตรวจ CO₂ ในห้อง', group: 'plant', build: beerBottle },
+  { id: 'solar', name: 'Solar on-grid 50kW · โรงงาน', desc: 'แผง 55kWp → Combiner (ฟิวส์ DC+SPD) → DC Isolator → อินเวอร์เตอร์ 3φ เข้าฟีดเดอร์ MDB ขนานกับกริด มิเตอร์ EM-GRID วัดซื้อ/ขายไฟ ปิดไฟกริดแล้วอินเวอร์เตอร์หยุด (Anti-islanding) ส่งข้อมูลขึ้น SCADA/Cloud', group: 'plant', build: solarOnGrid },
+  { id: 'solarhybrid', name: 'Solar hybrid + Battery · บ้าน/ออฟฟิศ', desc: 'แผง 5.5kWp โหมดกลางวัน-กลางคืน → ไฮบริดอินเวอร์เตอร์ + แบต LiFePO4 10kWh จ่ายโหลดสำรอง (ไฟ แอร์ ตู้เย็น) ไฟดับยังใช้ไฟได้จากแดด+แบต', group: 'full', build: solarHybrid },
   { id: 'pumpstation', name: 'ห้องปั๊มน้ำ · คุมระดับถังอัตโนมัติ', desc: 'ลูกลอยระดับต่ำ/สูงผ่านรีเลย์เข้า PLC สั่งปั๊มเดิน-หยุดเอง พร้อม LT, PT, ทาวเวอร์ไลท์ และ HMI', group: 'plant', build: pumpStation },
   { id: 'compressor', name: 'ห้องคอมเพรสเซอร์ลม · VFD + Energy meter', desc: 'MDB แยก feeder คอมเพรสเซอร์ 22kW ผ่านมิเตอร์และ VFD กับเครื่องทำลมแห้ง วัดแรงดันลมและการสั่น', group: 'plant', build: compressorRoom },
   { id: 'conveyor', name: 'ไลน์สายพาน · คัดแยกชิ้นงาน', desc: 'Start/Stop + E-Stop สั่งสายพาน เซนเซอร์นับชิ้นงานและโซลินอยด์คัดชิ้นงานโลหะ', group: 'plant', build: conveyorLine },

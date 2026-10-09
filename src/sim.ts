@@ -62,6 +62,18 @@ export interface RT {
   speed?: number;
   dcLoad?: number;
   damaged?: string;
+  irr?: number;
+  pvAvail?: number;
+  pvW?: number;
+  batW?: number;
+  gridW?: number;
+  loadW?: number;
+  soc?: number;
+  socSet?: number;
+  kwhExp?: number;
+  pvId?: string;
+  batId?: string;
+  lowBat?: boolean;
 }
 
 export interface Plant {
@@ -75,6 +87,7 @@ export interface Plant {
   heatKW: number;
   coolKW: number;
   pumpFrac: number;
+  solarKW: number;
 }
 
 export interface DisplayState {
@@ -120,7 +133,7 @@ export function newSim(): SimState {
   return {
     t: 0,
     rt: {},
-    plant: { temp: 30, pressure: 0.3, flow: 0, level: 2, vib: 0.4, totalA: 0, totalKW: 0, heatKW: 0, coolKW: 0, pumpFrac: 0 },
+    plant: { temp: 30, pressure: 0.3, flow: 0, level: 2, vib: 0.4, totalA: 0, totalKW: 0, heatKW: 0, coolKW: 0, pumpFrac: 0, solarKW: 0 },
     wire: {},
     displays: {},
     tags: {},
@@ -213,7 +226,12 @@ function injections(c: Comp, df: CompDef, r: RT): [string, string][] {
     case 'psu':
       return r.on && !r.fault ? [['P', id + '|+'], ['M', id + '|-']] : [];
     case 'ups':
+    case 'hybrid':
       return r.on && !r.fault ? [['OL', id + '|L'], ['ON', id + '|N']] : [];
+    case 'pv':
+      return r.powered && !r.fault ? [['PVP', id + '|+'], ['PVM', id + '|-']] : [];
+    case 'bess':
+      return r.fault ? [] : [['BP', id + '|+'], ['BM', id + '|-']];
     case 'vfd': {
       const out: [string, string][] = [];
       if (r.powered && !r.fault) out.push(['V24', id + '~24|+'], ['V0', id + '~24|-']);
@@ -388,6 +406,15 @@ function supplyOf(c: Comp, df: CompDef, n: Nets): Supply {
       const s = has3(n, id, 'in');
       return s ? { src: s, type: '3p' } : null;
     }
+    case 'pvinv': {
+      if (df.ports.some((p) => p.id === 'P3')) {
+        const s = has3(n, id, 'P3');
+        return s ? { src: s, type: '3p' } : null;
+      }
+      return circuit(n, id, 'L', 'N');
+    }
+    case 'hybrid':
+      return circuit(n, id, 'GL', 'GN');
     case 'sensor_a':
     case 'sensor_d':
     case 'sensor_485':
@@ -468,6 +495,8 @@ function basePower(c: Comp, df: CompDef, r: RT): number {
       return 15 + ((r.battery ?? 100) < 99 && r.inOk ? 60 : 0);
     case 'vfd':
       return 25;
+    case 'pvinv':
+      return r.on ? -Math.min(r.pvAvail ?? 0, (+c.props.kw || 0) * 1000) * 0.97 : 2;
     default:
       return 0;
   }
@@ -568,6 +597,45 @@ function updateStates(d: Design, s: SimState, n: Nets) {
         r.sel = has3(n, id, 'I1') ? 1 : has3(n, id, 'I2') ? 2 : 0;
         r.powered = r.sel > 0;
         break;
+      case 'pv': {
+        const peak = clamp(+c.props.irr || 0, 0, 1400);
+        const day = Math.max(20, +c.props.day || 120);
+        r.irr = c.props.sun === 'day' ? peak * Math.max(0, Math.sin(2 * Math.PI * ((s.t / day + 0.1) % 1))) : peak;
+        r.pvAvail = (+c.props.modules || 0) * (+c.props.wp || 0) * (r.irr / 1000) * 0.86;
+        r.powered = r.irr > 20 && !r.fault;
+        break;
+      }
+      case 'bess':
+        if (r.socSet !== +c.props.soc) {
+          r.socSet = +c.props.soc;
+          r.soc = clamp(+c.props.soc || 0, 0, 100);
+        }
+        r.powered = !r.fault;
+        break;
+      case 'pvinv':
+      case 'hybrid': {
+        const findSrc = (pa: string, pb: string, beh: string) => {
+          const cc = circuit(n, id, pa, pb);
+          if (!cc || cc.type !== 'dc') return undefined;
+          const x = d.comps.find((k) => k.id === srcCompId(cc.src));
+          return x && DEF_MAP[x.type]?.beh === beh ? x.id : undefined;
+        };
+        r.pvId = findSrc('PVP', 'PVM', 'pv');
+        r.pvAvail = r.pvId ? R(s, r.pvId).pvAvail ?? 0 : 0;
+        r.inOk = sup?.type === 'ac' || sup?.type === '3p';
+        if (df.beh === 'pvinv') {
+          r.on = c.props.on !== false && r.inOk && r.pvAvail > 20 && !r.fault;
+          r.powered = r.inOk;
+          break;
+        }
+        r.batId = findSrc('BP', 'BM', 'bess');
+        const soc = r.batId ? R(s, r.batId).soc ?? 0 : 0;
+        if (r.inOk || (r.batId && soc > 5)) r.lowBat = false;
+        else if (r.batId && soc < 0.5) r.lowBat = true;
+        r.on = c.props.on !== false && !r.fault && !r.lowBat && (r.inOk || r.pvAvail > 100 || (!!r.batId && soc > 0.5));
+        r.powered = !!r.on;
+        break;
+      }
       case 'relay':
       case 'contactor':
         r.coil = !!sup;
@@ -835,26 +903,88 @@ function computePower(d: Design, s: SimState) {
       r.dcLoad = down;
       const fed = df.beh === 'vfd' ? r.powered : r.inOk;
       p = fed ? basePower(c, df, r) + down / EFF[df.beh] : 0;
+    } else if (df.beh === 'hybrid') {
+      const load = depth < 8 ? (bySrc.get(c.id) ?? []).reduce((a, x) => a + power(x, depth + 1), 0) : 0;
+      p = hybridFlow(d, s, c, r, load);
     } else p = r.powered ? basePower(c, df, r) : 0;
     memo.set(c.id, p);
     r.powerW = p;
     return p;
   };
   for (const c of d.comps) power(c);
+
+  let solar = 0;
+  for (const c of d.comps) if (DEF_MAP[c.type]?.beh === 'bess') R(s, c.id).batW = 0;
+  for (const c of d.comps) {
+    const beh = DEF_MAP[c.type]?.beh;
+    const r = R(s, c.id);
+    if (beh === 'pvinv') r.pvW = Math.max(0, -(r.powerW ?? 0));
+    if (beh !== 'pvinv' && beh !== 'hybrid') continue;
+    solar += r.pvW ?? 0;
+    if (r.pvId) {
+      const pv = d.comps.find((x) => x.id === r.pvId)!;
+      const rp = R(s, pv.id);
+      rp.powerW = (rp.powerW ?? 0) + (r.pvW ?? 0) / 0.97;
+      rp.current = rp.powerW / Math.max(1, (+pv.props.modules || 1) * 41.5);
+    }
+    if (beh === 'hybrid' && r.batId) {
+      const rb = R(s, r.batId);
+      rb.batW = r.batW ?? 0;
+      rb.powerW = rb.batW;
+      rb.current = rb.powerW / 51.2;
+    }
+  }
+  s.plant.solarKW = solar / 1000;
   return bySrc;
+}
+
+function hybridFlow(d: Design, s: SimState, c: Comp, r: RT, load: number): number {
+  const bat = r.batId ? d.comps.find((x) => x.id === r.batId) : undefined;
+  const soc = bat ? R(s, bat.id).soc ?? 0 : 0;
+  r.soc = bat ? soc : undefined;
+  r.loadW = load;
+  r.pvW = 0;
+  r.batW = 0;
+  r.gridW = 0;
+  if (!r.on) return 0;
+  const kw = (+c.props.kw || 5) * 1000;
+  const maxB = bat ? (+bat.props.maxkw || 5) * 1000 : 0;
+  const reserve = r.inOk ? clamp(+c.props.reserve || 0, 0, 95) : 0.5;
+  let pv = Math.min(r.pvAvail ?? 0, kw * 1.3) * 0.97;
+  let net = pv - load - 20;
+  if (net < 0 && bat && soc > reserve) {
+    const dis = Math.min(-net, maxB);
+    r.batW = -dis;
+    net += dis;
+  } else if (net > 0 && bat && soc < 100) {
+    const ch = Math.min(net, maxB);
+    r.batW = ch;
+    net -= ch;
+  }
+  if (net > 0 && !(r.inOk && c.props.export !== false)) {
+    pv -= net;
+    net = 0;
+  }
+  r.pvW = pv;
+  if (!r.inOk) {
+    if (net < -1 && !bat) r.lowBat = true;
+    return 0;
+  }
+  r.gridW = -net;
+  return r.gridW;
 }
 
 function computeCurrents(d: Design, s: SimState, dt: number): boolean {
   const bySrc = computePower(d, s);
   const consumers = d.comps.filter((c) => {
     const r = R(s, c.id);
-    return r.powered && r.supply && (r.powerW ?? 0) > 0;
+    return r.powered && r.supply && (r.powerW ?? 0) !== 0;
   });
   for (const c of d.comps) {
     const df = DEF_MAP[c.type];
     if (!df) continue;
     const r = R(s, c.id);
-    if (df.beh === 'psu' || df.beh === 'ups' || df.beh === 'vfd') {
+    if (['psu', 'ups', 'vfd', 'pvinv', 'hybrid'].includes(df.beh)) {
       r.current = r.supply ? supplyCurrent(r.supply, r.powerW ?? 0) : 0;
     } else if (r.supply) r.current = supplyCurrent(r.supply, r.powerW ?? 0);
   }
@@ -886,11 +1016,12 @@ function computeCurrents(d: Design, s: SimState, dt: number): boolean {
     r.current = I;
     r.powerW = W;
     if (df.beh === 'emeter') {
-      r.kwh = (r.kwh ?? 0) + (W / 1000) * (dt / 3600);
+      r.kwh = (r.kwh ?? 0) + (Math.max(0, W) / 1000) * (dt / 3600);
+      r.kwhExp = (r.kwhExp ?? 0) + (Math.max(0, -W) / 1000) * (dt / 3600);
       continue;
     }
     const rating = df.beh === 'overload' ? +c.props.setting || 1 : +c.props.rating || 1;
-    const ratio = I / rating;
+    const ratio = Math.abs(I) / rating;
     if (ratio > 8 && df.beh !== 'overload') {
       r.tripped = true;
       r.tripReason = 'Magnetic trip (กระแสสูงมาก)';
@@ -995,7 +1126,7 @@ function timeStep(d: Design, s: SimState, dt: number) {
     const df = DEF_MAP[c.type];
     if (!df) continue;
     const r = R(s, c.id);
-    if (['grid1', 'grid3', 'gridmv', 'gen', 'battery', 'psu', 'ups', 'vfd', 'tr'].includes(df.beh)) r.fault = undefined;
+    if (['grid1', 'grid3', 'gridmv', 'gen', 'battery', 'psu', 'ups', 'vfd', 'tr', 'pv', 'bess', 'pvinv', 'hybrid'].includes(df.beh)) r.fault = undefined;
     switch (df.beh) {
       case 'sensor_a': {
         const v = sensorValue(c, s);
@@ -1054,6 +1185,16 @@ function timeStep(d: Design, s: SimState, dt: number) {
         else if (r.on) r.battery = Math.max(0, b - (dt * 100 * loadFrac) / ((+c.props.backupMin || 10) * 60));
         break;
       }
+      case 'bess': {
+        const wh = Math.max(0.1, +c.props.kwh || 5) * 1000;
+        const accel = Math.max(1, +c.props.accel || 60);
+        r.soc = clamp((r.soc ?? 0) + ((r.batW ?? 0) * (dt * accel / 3600) / wh) * 100, 0, 100);
+        break;
+      }
+      case 'pvinv':
+      case 'hybrid':
+        r.kwh = (r.kwh ?? 0) + ((r.pvW ?? 0) / 1000) * (dt / 3600);
+        break;
     }
   }
 }
@@ -1087,7 +1228,26 @@ function pubTags(c: Comp, df: CompDef, r: RT): Tag[] {
         { ...base, id: `${c.id}:P`, name: `${c.label} Power`, value: (r.powerW ?? 0) / 1000, unit: 'kW', min: 0, max: 50 },
         { ...base, id: `${c.id}:E`, name: `${c.label} Energy`, value: r.kwh ?? 0, unit: 'kWh', min: 0, max: 1000 },
       );
+      if (r.kwhExp) out.push({ ...base, id: `${c.id}:EX`, name: `${c.label} Export`, value: r.kwhExp, unit: 'kWh', min: 0, max: 1000 });
       break;
+    case 'pvinv':
+    case 'hybrid': {
+      const kw = +c.props.kw || 5;
+      out.push(
+        { ...base, id: `${c.id}:PV`, name: `${c.label} PV Power`, value: (r.pvW ?? 0) / 1000, unit: 'kW', min: 0, max: kw * 1.3 },
+        { ...base, id: `${c.id}:Y`, name: `${c.label} Yield`, value: r.kwh ?? 0, unit: 'kWh', min: 0, max: 1000 },
+        { ...base, id: `${c.id}:RUN`, name: `${c.label} Run`, value: r.on ? 1 : 0, unit: '', min: 0, max: 1, bool: true },
+      );
+      if (df.beh === 'hybrid') {
+        out.push(
+          { ...base, id: `${c.id}:SOC`, name: `${c.label} Battery SOC`, value: r.soc ?? 0, unit: '%', min: 0, max: 100, lo: +c.props.reserve || 20 },
+          { ...base, id: `${c.id}:BAT`, name: `${c.label} Battery Power`, value: (r.batW ?? 0) / 1000, unit: 'kW', min: -kw, max: kw },
+          { ...base, id: `${c.id}:GRID`, name: `${c.label} Grid Power`, value: (r.gridW ?? 0) / 1000, unit: 'kW', min: -kw, max: kw },
+          { ...base, id: `${c.id}:LOAD`, name: `${c.label} Load`, value: (r.loadW ?? 0) / 1000, unit: 'kW', min: 0, max: kw },
+        );
+      }
+      break;
+    }
     case 'sensor_485':
     case 'sensor_lora':
       out.push(
@@ -1108,6 +1268,8 @@ const PUB_PORTS: Record<string, string[]> = {
   vfd: ['ETH', '485'],
   emeter: ['ETH', '485'],
   sensor_485: ['485'],
+  pvinv: ['ETH', '485'],
+  hybrid: ['ETH', '485'],
 };
 const SUB_PORTS: Record<string, string[]> = {
   hmi: ['ETH', '485'],
@@ -1258,6 +1420,13 @@ function updateAlarms(d: Design, s: SimState) {
     if (df.beh === 'psu' && (r.dcLoad ?? 0) > (+c.props.ratedW || 240)) act.push({ id: c.id + ':ovl', sev: 'warn', msg: `${c.label} โหลดเกินพิกัด ${(r.dcLoad ?? 0).toFixed(0)}W` });
     if (df.beh === 'ups' && r.on && !r.inOk) act.push({ id: c.id + ':batt', sev: 'warn', msg: `${c.label} ทำงานด้วยแบตเตอรี่ ${(r.battery ?? 0).toFixed(0)}%` });
     if (df.beh === 'ups' && !r.on && !r.inOk) act.push({ id: c.id + ':empty', sev: 'crit', msg: `${c.label} แบตเตอรี่หมด` });
+    if (df.beh === 'pvinv' && c.props.on !== false && !r.inOk && (r.pvAvail ?? 0) > 20)
+      act.push({ id: c.id + ':island', sev: 'warn', msg: `${c.label} หยุดจ่าย — ไม่มีไฟกริด (Anti-islanding)` });
+    if (df.beh === 'hybrid' && c.props.on !== false) {
+      if (r.on && !r.inOk) act.push({ id: c.id + ':backup', sev: 'warn', msg: `${c.label} ไฟดับ — จ่ายโหลดสำรองจากแดด/แบต (EPS) ${r.soc !== undefined ? `SOC ${r.soc.toFixed(0)}%` : ''}` });
+      if (r.on && r.soc !== undefined && r.soc <= (+c.props.reserve || 0) && r.inOk) act.push({ id: c.id + ':lowbat', sev: 'info', msg: `${c.label} แบตถึงระดับสำรอง ${r.soc.toFixed(0)}% — ดึงไฟกริดแทน` });
+      if (!r.on && !r.fault) act.push({ id: c.id + ':nopow', sev: 'crit', msg: `${c.label} ไม่มีไฟจ่ายโหลด — ไม่มีกริด แดดไม่พอ หรือแบตหมด` });
+    }
     const ds = s.displays[c.id];
     if (ds?.status === 'nocomm' && df.beh !== 'monitor') act.push({ id: c.id + ':comm', sev: 'warn', msg: `${c.label} ไม่มีการสื่อสาร (COMM FAIL)` });
   }

@@ -171,6 +171,7 @@ function Process({ sim }: { sim: SimState | null }) {
         <div className="row"><span>แอร์/ทำความเย็น</span><b className="mono">{fmt(p.coolKW, 2)} kW</b></div>
         <div className="row"><span>ปั๊ม (ความเร็ว)</span><b className="mono">{fmt(p.pumpFrac * 100, 0)} %</b></div>
         <div className="row"><span>กระแสรวม</span><b className="mono">{fmt(p.totalA, 1)} A</b></div>
+        {p.solarKW > 0 && <div className="row"><span>ไฟจากโซลาร์</span><b className="mono">{fmt(p.solarKW, 2)} kW</b></div>}
         <p className="muted small">เซนเซอร์โหมด <b>process</b> จะอ่านค่าจากแบบจำลองกระบวนการนี้ — เปิดฮีตเตอร์ อุณหภูมิขึ้น, เดินปั๊ม แรงดัน/อัตราการไหล/ระดับถังเพิ่ม</p>
       </div>
     </div>

@@ -119,7 +119,20 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
     live.push(['สถานะไฟ', r.damaged ? 'เสียหาย (พัง)' : r.fault ? `FAULT: ${r.fault}` : r.tripped ? `TRIPPED (${r.tripReason ?? ''})` : r.powered ? 'มีไฟ / ทำงาน' : 'ไม่มีไฟ']);
     if (r.src) live.push(['แหล่งจ่าย', `${design.comps.find((x) => x.id === r.src!.split('~')[0])?.label ?? r.src} (${r.supply === 'dc' ? '24VDC' : r.supply === '3p' ? '400V 3φ' : '230VAC'})`]);
     if (r.current !== undefined && (r.current > 0 || r.powered)) live.push(['กระแส', `${fmt(r.current, 2)} A`]);
-    if (r.powerW !== undefined && r.powerW > 0) live.push(['กำลังไฟ', r.powerW >= 1000 ? `${fmt(r.powerW / 1000, 2)} kW` : `${fmt(r.powerW, 1)} W`]);
+    if (r.powerW !== undefined && r.powerW !== 0)
+      live.push([r.powerW < 0 ? 'กำลังไฟ (จ่ายย้อน/ขาย)' : 'กำลังไฟ', Math.abs(r.powerW) >= 1000 ? `${fmt(r.powerW / 1000, 2)} kW` : `${fmt(r.powerW, 1)} W`]);
+    if (df.beh === 'pv') live.push(['ความเข้มแสง', `${fmt(r.irr ?? 0, 0)} W/m² · พร้อมจ่าย ${fmt((r.pvAvail ?? 0) / 1000, 2)} kW`]);
+    if (df.beh === 'pvinv' || df.beh === 'hybrid') {
+      live.push(['ไฟจากแดด (PV)', `${fmt((r.pvW ?? 0) / 1000, 2)} kW / แผงพร้อม ${fmt((r.pvAvail ?? 0) / 1000, 2)} kW`]);
+      live.push(['ไฟกริด', r.inOk ? 'มี (ซิงก์กับกริด)' : 'ไม่มี']);
+    }
+    if (df.beh === 'hybrid') {
+      live.push(['โหลดสำรอง', `${fmt((r.loadW ?? 0) / 1000, 2)} kW`]);
+      live.push(['แบตเตอรี่', r.soc === undefined ? 'ไม่ได้ต่อ' : `${fmt(r.soc, 0)} % · ${(r.batW ?? 0) >= 0 ? 'ชาร์จ' : 'จ่าย'} ${fmt(Math.abs(r.batW ?? 0) / 1000, 2)} kW`]);
+      live.push(['กริด', (r.gridW ?? 0) < 0 ? `ขายออก ${fmt(-(r.gridW ?? 0) / 1000, 2)} kW` : `ซื้อเข้า ${fmt((r.gridW ?? 0) / 1000, 2)} kW`]);
+    }
+    if (df.beh === 'bess') live.push(['SOC', `${fmt(r.soc ?? 0, 1)} %`]);
+    if (r.kwhExp) live.push(['พลังงานขายออก', `${fmt(r.kwhExp, 3)} kWh`]);
     if (df.beh === 'tr' && r.powered) live.push(['โหลดเทียบพิกัด', `${fmt((100 * (r.powerW ?? 0)) / ((+c.props.kva || 1) * 1000), 0)} % ของ ${c.props.kva} kVA`]);
     if (df.beh === 'psu') live.push(['โหลด DC', `${fmt(r.dcLoad ?? 0, 1)} W / ${c.props.ratedW} W`]);
     if (df.beh === 'sensor_a' && r.value !== undefined) {
@@ -143,7 +156,7 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
     }
   }
 
-  const canToggle = ['breaker', 'rcbo', 'fuse', 'switch', 'estop', 'selector', 'contact_sw', 'sensor_d', 'grid1', 'grid3', 'gridmv', 'gen', 'swg', 'mdb'].includes(df.beh);
+  const canToggle = ['breaker', 'rcbo', 'fuse', 'switch', 'estop', 'selector', 'contact_sw', 'sensor_d', 'grid1', 'grid3', 'gridmv', 'gen', 'swg', 'mdb', 'pv', 'pvinv', 'hybrid'].includes(df.beh);
 
   return (
     <aside className="inspector">

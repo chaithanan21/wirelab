@@ -267,6 +267,27 @@ const P: Record<string, React.ReactNode> = {
       <path d="M10 12h4" />
     </>
   ),
+  solar: (
+    <>
+      <path d="M4 20 7 9h13l-3 11z" />
+      <path d="M5.5 14.5h13M12 9l-1.5 11M15.8 9l-1.6 11M8.3 9l-1.5 11" />
+      <circle cx="6" cy="4.5" r="2" />
+    </>
+  ),
+  inverter: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 21 21 3M6 8h6M6 10.5h6M13.5 16c.8-1.2 1.7-1.2 2.5 0s1.7 1.2 2.5 0" />
+    </>
+  ),
+  combiner: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M8 4v16M16 4v16" />
+      <rect x="6.5" y="9" width="3" height="6" rx="0.5" />
+      <rect x="14.5" y="9" width="3" height="6" rx="0.5" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 20, color = 'currentColor' }: { name: string; size?: number; color?: string }) {

@@ -22,8 +22,11 @@ const PSU_ZERO = h('−V ของ Power Supply 24VDC', '0V ต้องเป�
 const PLC_DI = h('DI ของ PLC (DI1–DI4)', 'อินพุตดิจิทัล รับ +24V เมื่อตรวจจับหรือสัมผัสปิด', ['plc', 'rio', 'edge'], ['DI1', 'DI2', 'DI3', 'DI4'], ['X']);
 const PLC_DO = h('DO ของ PLC (DO1–DO4)', 'เอาต์พุตที่จ่าย +24V เมื่อสั่งงาน', ['plc'], ['DO1', 'DO2', 'DO3', 'DO4'], ['X']);
 const PLC_AI = h('AI ของ PLC หรือช่อง 4-20mA ของ Panel Meter', 'สัญญาณแอนะล็อกจากทรานสมิตเตอร์', ['plc', 'rio', 'edge', 'pmeter', 'tempctl'], ['AI1', 'AI2', 'AI3', 'AI4', 'IN'], ['AI']);
-const ETH = h('พอร์ต Ethernet ของสวิตช์ PLC HMI หรือเราเตอร์', 'สาย LAN ส่งข้อมูลบนเครือข่ายเดียวกัน', ['eswitch', 'plc', 'rio', 'edge', 'hmi', 'router', 'gateway', 'scada', 'led', 'lora_gw', 'emeter', 'vfd'], ['E1', 'E2', 'E3', 'E4', 'E5', 'ETH'], ['ETH']);
-const RS485 = h('ขั้ว RS485 ของ PLC, HMI, Gateway หรือมิเตอร์', 'สายคู่บิด Modbus RTU ต้องเป็นบัสเดียวกัน', ['plc', 'hmi', 'gateway', 'emeter', 'vfd', 'sensor_485'], ['485'], ['485']);
+const ETH = h('พอร์ต Ethernet ของสวิตช์ PLC HMI หรือเราเตอร์', 'สาย LAN ส่งข้อมูลบนเครือข่ายเดียวกัน', ['eswitch', 'plc', 'rio', 'edge', 'hmi', 'router', 'gateway', 'scada', 'led', 'lora_gw', 'emeter', 'vfd', 'pvinv', 'hybrid'], ['E1', 'E2', 'E3', 'E4', 'E5', 'ETH'], ['ETH']);
+const RS485 = h('ขั้ว RS485 ของ PLC, HMI, Gateway หรือมิเตอร์', 'สายคู่บิด Modbus RTU ต้องเป็นบัสเดียวกัน', ['plc', 'hmi', 'gateway', 'emeter', 'vfd', 'sensor_485', 'pvinv', 'hybrid'], ['485'], ['485']);
+const PV_PLUS_IN = h('PV+ out ของ DC Isolator / Combiner หรือ PV+ ของแผง', 'สาย DC บวกจากสตริงแผง (สายโซลาร์สีแดง PV1-F)', ['switch', 'pv'], ['op', 'PVP'], ['PV+']);
+const PV_MINUS_IN = h('PV− out ของ DC Isolator / Combiner หรือ PV− ของแผง', 'สาย DC ลบจากสตริงแผง (สายโซลาร์สีดำ)', ['switch', 'pv'], ['om', 'PVM'], ['PV-']);
+const PV_EARTH = h('บาร์กราวด์ของตู้หรือ PE ของอินเวอร์เตอร์', 'ต่อกราวด์โครงแผง/ตู้ และ SPD ฝั่ง DC', ['pvinv', 'hybrid', 'grid1', 'grid3', 'mdb'], ['PE'], ['PE']);
 const HDMI_OUT = h('HDMI IN ของจอมอนิเตอร์', 'ส่งภาพจาก SCADA ไปจอใหญ่', ['monitor'], ['HDMI'], ['HDMI']);
 const HDMI_IN = h('HDMI ของ SCADA Workstation', 'รับภาพจากเครื่อง SCADA', ['scada'], ['HDMI'], ['HDMI']);
 const FROM_L = h('ขั้ว L ที่ออกจากเบรกเกอร์ สวิตช์ หรือหน้าสัมผัส NO', 'รับสายไลน์ 230V', ['breaker', 'rcbo', 'switch', 'relay', 'timer', 'tempctl', 'ups'], ['out', 'L2', 'NO', 'OL'], ['L', 'X']);
@@ -63,6 +66,38 @@ const BEH_PORTS: Partial<Record<Behavior, Record<string, PortHint>>> = {
     N: FROM_N,
     P: h('+24V ของ PLC, เซนเซอร์, HMI และคอยล์รีเลย์', 'จ่ายไฟเลี้ยงบวกทั้งตู้', ['plc', 'rio', 'edge', 'sensor_a', 'sensor_d', 'sensor_485', 'hmi', 'eswitch', 'router', 'relay'], ['VP', 'P'], ['DC+', 'X']),
     M: h('0V ของ PLC, เซนเซอร์, HMI และ A2 ของรีเลย์', 'จ่าย 0V จุดร่วมทั้งวงจร 24V', ['plc', 'rio', 'edge', 'sensor_a', 'sensor_d', 'hmi', 'relay', 'load_dc', 'tower'], ['VM', 'M', 'A2'], ['DC-', 'X']),
+  },
+  pv: {
+    PVP: h('PV+ in ของ Combiner Box หรือ DC Isolator', 'ขั้วบวกของสตริงแผง แรงดัน DC สูงหลายร้อยโวลต์ ต้องผ่านอุปกรณ์ตัดวงจร DC ก่อนเข้าอินเวอร์เตอร์', ['switch'], ['ip'], ['PV+']),
+    PVM: h('PV− in ของ Combiner Box หรือ DC Isolator', 'ขั้วลบของสตริงแผง', ['switch'], ['im'], ['PV-']),
+    PE: PV_EARTH,
+  },
+  pvinv: {
+    PVP: PV_PLUS_IN,
+    PVM: PV_MINUS_IN,
+    L: h('L out ของ MCB/RCBO ที่แยกจากตู้ไฟสำหรับโซลาร์', 'อินเวอร์เตอร์จ่ายไฟย้อนเข้าตู้ ต้องมีเบรกเกอร์ของตัวเอง', ['breaker', 'rcbo'], ['out', 'L2'], ['L']),
+    N: h('N ของเบรกเกอร์ชุดเดียวกันหรือบาร์ N ของตู้', 'นิวทรัลอ้างอิงของกริด', ['breaker', 'rcbo', 'grid1', 'grid3', 'tr'], ['N2', 'N'], ['N']),
+    P3: h('OUT ของ MCCB 3P ที่ฟีดเดอร์ว่างของ MDB', 'จ่ายไฟ 3 เฟสย้อนเข้าบัส 400V ขนานกับหม้อแปลง', ['breaker', 'mdb'], ['out', 'F1', 'F2', 'F3', 'F4'], ['P3']),
+    PE: PV_EARTH,
+    ETH: ETH,
+    '485': RS485,
+  },
+  hybrid: {
+    PVP: PV_PLUS_IN,
+    PVM: PV_MINUS_IN,
+    BP: h('BAT+ ของแบตเตอรี่ LiFePO4', 'ขั้วบวกแบต ต้องมีฟิวส์/เบรกเกอร์ DC ใกล้แบต', ['bess'], ['BP'], ['PV+']),
+    BM: h('BAT− ของแบตเตอรี่ LiFePO4', 'ขั้วลบแบต', ['bess'], ['BM'], ['PV-']),
+    GL: h('L out ของเบรกเกอร์จากกริด', 'ไฟกริดเข้าอินเวอร์เตอร์ ใช้ชาร์จแบต/เสริมโหลด และขายไฟส่วนเกิน', ['breaker', 'rcbo', 'grid1'], ['out', 'L2', 'L'], ['L']),
+    GN: h('N จากกริดหรือเบรกเกอร์ตัวเดียวกัน', 'นิวทรัลฝั่งกริด', ['breaker', 'rcbo', 'grid1'], ['N2', 'N'], ['N']),
+    OL: h('L in ของ MCB โหลดสำรอง (Backup / EPS)', 'โหลดที่ต้องไม่ดับต่อที่นี่ ไฟดับยังได้ไฟจากแดด+แบต', ['breaker', 'rcbo'], ['in', 'L1'], ['L']),
+    ON: h('N in ของ MCB โหลดสำรอง', 'นิวทรัลฝั่งโหลดสำรอง แยกจาก N ของกริด', ['breaker', 'rcbo'], ['N1'], ['N']),
+    PE: PV_EARTH,
+    ETH: ETH,
+    '485': RS485,
+  },
+  bess: {
+    BP: h('BAT+ ของไฮบริดอินเวอร์เตอร์', 'ขั้วบวกแบตเตอรี่ 51.2V', ['hybrid'], ['BP'], ['PV+']),
+    BM: h('BAT− ของไฮบริดอินเวอร์เตอร์', 'ขั้วลบแบตเตอรี่', ['hybrid'], ['BM'], ['PV-']),
   },
   ups: {
     L: h('L จากกริดหรือเบรกเกอร์เมน', 'ไฟเข้า UPS', ['grid1', 'breaker', 'rcbo'], ['L', 'out', 'L2'], ['L', 'X']),
@@ -331,6 +366,9 @@ const TYPE_SUMMARY: Record<string, string> = {
   socket: 'ต่อ L N จากเบรกเกอร์หรือ RCBO และ PE ลงดิน เปิดโหมดไฟรั่วเพื่อลอง RCBO',
   lora_th: 'ไม่ต้องเดินสาย วาง LoRaWAN Gateway ที่มีไฟและ Ethernet เซนเซอร์จะส่งข้อมูลเอง',
   cloud: 'ไม่ต้องเดินสาย ต่อเราเตอร์ 4G เข้ากับ PLC หรือ Edge แล้วแดชบอร์ดจะขึ้นเอง',
+  pv_comb: 'สตริงแผงเข้า PV in ผ่านฟิวส์ DC แล้ว PV out ไป DC Isolator หรืออินเวอร์เตอร์ ต่อ PE ให้ SPD',
+  dc_iso: 'ติดหน้าอินเวอร์เตอร์ PV in จากแผง/Combiner PV out ไปขั้ว PV ของอินเวอร์เตอร์',
+  pvinv3: 'PV+/PV− จาก DC Isolator ฝั่ง AC ต่อ L1-L3 เข้า MCCB ฟีดเดอร์ของ MDB พร้อม N และ PE',
 };
 
 const BEH_SUMMARY: Partial<Record<Behavior, string>> = {
@@ -345,6 +383,10 @@ const BEH_SUMMARY: Partial<Record<Behavior, string>> = {
   psu: 'รับ L-N 230V แล้วจ่าย +V/−V ให้ PLC เซนเซอร์ และรีเลย์ทั้งตู้',
   ups: 'รับ L-N จากกริด จ่าย L out/N out ให้โหลดที่ห้ามดับ',
   ats: 'Normal มาจากกริด Emergency มาจากเครื่องกำเนิด ขั้ว Load ไป MCCB',
+  pv: 'PV+/PV− ไป Combiner Box หรือ DC Isolator ก่อนเข้าอินเวอร์เตอร์ ต่อ PE โครงแผงลงดิน',
+  pvinv: 'PV จาก DC Isolator เข้า PV+/PV− ฝั่ง AC ต่อ L/N ผ่านเบรกเกอร์ของตัวเองเข้าตู้ไฟ อินเวอร์เตอร์จะจ่ายเฉพาะตอนมีไฟกริด',
+  hybrid: 'PV จากแผง BAT จากแบต GRID จากเบรกเกอร์กริด และ LOAD ไปตู้โหลดสำรองที่ต้องไม่ดับ',
+  bess: 'ต่อ BAT+/BAT− เข้าขั้ว BAT ของไฮบริดอินเวอร์เตอร์เท่านั้น',
   breaker: 'ไฟเข้าด้าน IN หรือ L in ไฟออกด้าน OUT หรือ L out ไปหาโหลด',
   rcbo: 'ต่อ L-N เข้าและออกเหมือนเบรกเกอร์ 2 ขั้ว ใช้กับเต้ารับเพื่อกันไฟรั่ว',
   fuse: 'ต่ออนุกรมบนสายที่ต้องการป้องกัน ไฟเข้า IN ไฟออก OUT',
@@ -397,7 +439,7 @@ const TYPE_PORTS: Record<string, Record<string, PortHint>> = {
   },
   mccb3: {
     in: h('Load ของ ATS หรือ L1–L3 ของกริด', 'ไฟ 3 เฟสเข้า', ['ats', 'grid3'], ['O', 'P3'], ['P3']),
-    out: h('IN ของคอนแทคเตอร์, VFD หรือมิเตอร์', 'ไฟ 3 เฟสออก', ['contactor', 'vfd', 'emeter', 'tb'], ['in'], ['P3']),
+    out: h('IN ของคอนแทคเตอร์, VFD, มิเตอร์ หรือ L1-L3 ของอินเวอร์เตอร์โซลาร์', 'ไฟ 3 เฟสออก', ['contactor', 'vfd', 'emeter', 'tb', 'pvinv'], ['in', 'P3'], ['P3']),
   },
   rcbo: {
     L1: h('L จากกริด', 'ไลน์เข้า RCBO', ['grid1'], ['L'], ['L']),
@@ -421,6 +463,19 @@ const TYPE_PORTS: Record<string, Record<string, PortHint>> = {
   pilot: {
     P: h('DO ของ PLC หรือ NO ของรีเลย์', 'ขั้ว X1 ได้ +24V แล้วหลอดติด', ['plc', 'relay', 'timer'], ['DO1', 'DO2', 'DO3', 'DO4', 'NO'], ['X']),
     M: PSU_ZERO,
+  },
+  pv_comb: {
+    ip: h('PV+ ของสตริงแผงโซลาร์', 'เข้าฟิวส์ DC ขั้วบวก', ['pv'], ['PVP'], ['PV+']),
+    im: h('PV− ของสตริงแผงโซลาร์', 'เข้าฟิวส์ DC ขั้วลบ', ['pv'], ['PVM'], ['PV-']),
+    op: h('PV+ in ของ DC Isolator หรือ PV+ ของอินเวอร์เตอร์', 'DC บวกที่ผ่านฟิวส์และ SPD แล้ว', ['switch', 'pvinv', 'hybrid'], ['ip', 'PVP'], ['PV+']),
+    om: h('PV− in ของ DC Isolator หรือ PV− ของอินเวอร์เตอร์', 'DC ลบที่ผ่านฟิวส์และ SPD แล้ว', ['switch', 'pvinv', 'hybrid'], ['im', 'PVM'], ['PV-']),
+    PE: PV_EARTH,
+  },
+  dc_iso: {
+    ip: h('PV+ out ของ Combiner หรือ PV+ ของแผง', 'DC บวกเข้าสวิตช์ตัดวงจร', ['switch', 'pv'], ['op', 'PVP'], ['PV+']),
+    im: h('PV− out ของ Combiner หรือ PV− ของแผง', 'DC ลบเข้าสวิตช์ตัดวงจร', ['switch', 'pv'], ['om', 'PVM'], ['PV-']),
+    op: h('PV+ ของอินเวอร์เตอร์', 'ตัดได้ทั้ง 2 ขั้วพร้อมกันก่อนซ่อมอินเวอร์เตอร์', ['pvinv', 'hybrid'], ['PVP'], ['PV+']),
+    om: h('PV− ของอินเวอร์เตอร์', 'DC ลบเข้าอินเวอร์เตอร์', ['pvinv', 'hybrid'], ['PVM'], ['PV-']),
   },
 };
 
@@ -462,6 +517,8 @@ function fallback(p: PortDef): PortHint {
   if (p.kind === 'MV') return h('ขั้ว 22kV ของสวิตช์เกียร์หรือหม้อแปลง', 'สายแรงกลาง', ['swg', 'tr'], undefined, ['MV']);
   if (p.kind === 'DC+') return PSU_PLUS;
   if (p.kind === 'DC-') return PSU_ZERO;
+  if (p.kind === 'PV+') return PV_PLUS_IN;
+  if (p.kind === 'PV-') return PV_MINUS_IN;
   if (p.kind === 'AI') return PLC_AI;
   if (p.kind === '485') return RS485;
   if (p.kind === 'ETH') return ETH;

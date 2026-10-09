@@ -34,6 +34,18 @@ const SYM: Record<string, Fn> = {
   src_gen: () => `<circle cx="40" cy="40" r="24"/>${T(40, 41, 'G', 16)}${tilde(40, 52, 14)}`,
   src_dc: () => `<path d="M40 4V30M24 30h32M40 58V76M24 46h32"/><path d="M32 38h16M32 54h16" stroke-width="4"/>${T(64, 30, '+', 14)}`,
   psu: () => converter(tilde(25, 26), '<path d="M48 54h14M48 60h14"/>'),
+  pv: () =>
+    `<path d="M40 4V18M40 62V76"/><rect x="14" y="18" width="52" height="44"/><path d="M14 62L66 18"/>` +
+    `<path d="M70 4l-9 9M78 10l-9 9"/><path d="M61 13v-5M61 13h5M69 19v-5M69 19h5"/>${T(52, 56, '+', 11)}${T(26, 34, '=', 13)}`,
+  pvinv: () => converter('<path d="M18 24h14M18 30h14"/>', tilde(55, 58)),
+  hybrid: () => converter('<path d="M18 24h14M18 30h14"/>', tilde(55, 58)) + `<path d="M58 22v8M54 26h8"/>${T(60, 44, 'BAT', 8)}`,
+  bess: () =>
+    `<path d="M40 4V26M24 26h32M40 64V76M24 52h32"/><path d="M30 34h20M30 60h20" stroke-width="4"/><path d="M24 44h32" stroke-width="1"/>` +
+    `${T(64, 26, '+', 13)}${T(10, 50, 'Li', 9)}`,
+  pvcomb: () =>
+    `<rect x="6" y="8" width="68" height="64" stroke-dasharray="4 3"/><path d="M28 4V22M28 40V76"/><rect x="23" y="22" width="10" height="18"/>` +
+    `<path d="M52 4V30M52 76V54M52 54L41 31"/>${T(28, 66, 'F', 9)}${T(64, 66, 'DC', 8)}`,
+  dciso: () => no() + `<path d="M40 28h-6"/>${T(62, 46, 'DC', 11)}${T(62, 60, '2P', 9)}`,
   ups: () => converter(tilde(25, 26), tilde(55, 58)) + T(56, 32, 'UPS', 9),
   vfd: () => converter(T(25, 30, 'f1', 13), T(55, 62, 'f2', 13)),
   ats: () =>
@@ -100,6 +112,12 @@ export const NAMES: Record<string, string> = {
   src_gen: 'Generator / เครื่องกำเนิดไฟฟ้า',
   src_dc: 'Battery / แบตเตอรี่',
   psu: 'AC/DC converter / พาวเวอร์ซัพพลาย',
+  pv: 'Photovoltaic generator / แผงโซลาร์เซลล์',
+  pvinv: 'Inverter DC/AC / อินเวอร์เตอร์โซลาร์',
+  hybrid: 'Hybrid inverter + battery port / ไฮบริดอินเวอร์เตอร์',
+  bess: 'Battery storage Li-ion / แบตเตอรี่กักเก็บ',
+  pvcomb: 'PV combiner box, fused / ตู้รวมสตริง',
+  dciso: 'DC isolator 2P / สวิตช์ตัดไฟ DC',
   ups: 'UPS / เครื่องสำรองไฟ',
   vfd: 'Frequency converter / อินเวอร์เตอร์',
   ats: 'Change-over switch / ATS',
@@ -156,8 +174,8 @@ export function iecSymbol(c: Comp | undefined, df: CompDef): string {
 
 // IEC 81346-2 letter codes
 const LETTER_BY_BEH: Partial<Record<CompDef['beh'], string>> = {
-  grid1: 'G', grid3: 'G', gridmv: 'G', gen: 'G', battery: 'G',
-  psu: 'T', ups: 'T', tr: 'T', vfd: 'T',
+  grid1: 'G', grid3: 'G', gridmv: 'G', gen: 'G', battery: 'G', pv: 'G', bess: 'G',
+  psu: 'T', ups: 'T', tr: 'T', vfd: 'T', pvinv: 'T', hybrid: 'T',
   ats: 'Q', swg: 'Q', breaker: 'Q', rcbo: 'Q', contactor: 'Q',
   fuse: 'F', passive: 'F', overload: 'F',
   switch: 'S', pb: 'S', estop: 'S', selector: 'S',
@@ -168,7 +186,7 @@ const LETTER_BY_BEH: Partial<Record<CompDef['beh'], string>> = {
   hmi: 'P', scada: 'P', monitor: 'P', pmeter: 'P', led: 'P', cloud: 'A',
   mdb: 'A', tb: 'X',
 };
-const LETTER_BY_TYPE: Record<string, string> = { fan1: 'M', aircon: 'E', socket: 'X', dcfan: 'M', valve: 'M', buzzer: 'P' };
+const LETTER_BY_TYPE: Record<string, string> = { fan1: 'M', aircon: 'E', socket: 'X', dcfan: 'M', valve: 'M', buzzer: 'P', pv_comb: 'Q', dc_iso: 'Q' };
 
 export function letterCode(df: CompDef | undefined): string {
   if (!df) return 'A';
@@ -193,6 +211,8 @@ export const WIRE_STYLES: Record<string, WireStyle> = {
   P3: { key: 'P3', label: '3~ L1-L2-L3 (///) — power', color: '#1a1a1a', ticks: 3 },
   MV: { key: 'MV', label: 'MV 22 kV — power', color: '#7a1f1f', ticks: 3 },
   DC: { key: 'DC', label: 'DC control — dark blue / น้ำเงิน', color: '#1e3a8a' },
+  PVP: { key: 'PVP', label: 'PV / BAT + — red / แดง (H1Z2Z2-K)', color: '#c81e1e' },
+  PVM: { key: 'PVM', label: 'PV / BAT − — black / ดำ (H1Z2Z2-K)', color: '#111111' },
   SIG: { key: 'SIG', label: 'Analog 4-20 mA — white / ขาว (shielded)', color: '#6b7280' },
   NET: { key: 'NET', label: 'Network / สื่อสาร (dashed)', color: '#2b3c4a' },
 };

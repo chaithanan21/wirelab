@@ -19,6 +19,7 @@ const SUPPLY_PORTS: Record<string, string[]> = {
   lora_gw: ['VP', 'VM'], hmi: ['VP', 'VM'], led: ['VP', 'VM'],
   relay: ['A1', 'A2'], contactor: ['A1', 'A2'], timer: ['A1', 'A2'],
   vfd: ['in'], motor3: ['U'], emeter: ['in'], tower: ['M'], tr: ['HV'], mdb: ['IN'], swg: ['IN'],
+  pvinv: ['PVP', 'PVM', 'P3', 'L', 'N'], hybrid: ['PVP', 'PVM', 'GL', 'GN'],
 };
 
 const AC_INPUT = new Set(['psu', 'ups', 'load_ac', 'scada', 'monitor', 'pmeter', 'tempctl']);

@@ -1,4 +1,4 @@
-export type PortKind = 'L' | 'N' | 'PE' | 'P3' | 'MV' | 'DC+' | 'DC-' | 'X' | 'AI' | '485' | 'ETH' | 'HDMI';
+export type PortKind = 'L' | 'N' | 'PE' | 'P3' | 'MV' | 'DC+' | 'DC-' | 'PV+' | 'PV-' | 'X' | 'AI' | '485' | 'ETH' | 'HDMI';
 export type Side = 'l' | 'r' | 't' | 'b';
 
 export interface PortDef {
@@ -25,6 +25,7 @@ export interface PropDef {
 
 export type Behavior =
   | 'grid1' | 'grid3' | 'gridmv' | 'gen' | 'battery' | 'psu' | 'ups' | 'ats'
+  | 'pv' | 'pvinv' | 'hybrid' | 'bess'
   | 'swg' | 'tr' | 'mdb'
   | 'breaker' | 'rcbo' | 'fuse' | 'passive'
   | 'switch' | 'pb' | 'estop' | 'selector'
