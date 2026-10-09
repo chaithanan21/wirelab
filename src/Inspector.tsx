@@ -6,6 +6,7 @@ import { fmt } from './CompView';
 import type { Sel } from './Canvas';
 import { wireColor } from './Canvas';
 import { WiringAdvice } from './WiringAdvice';
+import { wireIssue } from './check';
 
 interface Props {
   design: Design;
@@ -14,7 +15,7 @@ interface Props {
   onComp: (id: string, patch: Partial<Comp>, history?: boolean) => void;
   onWire: (id: string, patch: Partial<Wire>) => void;
   onDelete: () => void;
-  onAction: (id: string, a: 'toggle' | 'reset' | 'test') => void;
+  onAction: (id: string, a: 'toggle' | 'reset' | 'test' | 'repair') => void;
 }
 
 const WIRE_COLORS = ['#c2703d', '#4f8ff7', '#4ade80', '#a1a1aa', '#ef4444', '#6366f1', '#f8fafc', '#111827', '#f59e0b', '#facc15', '#14b8a6', '#c084fc', '#ec4899'];
@@ -29,6 +30,7 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
     const pb = cb && DEF_MAP[cb.type].ports.find((p) => p.id === w.b.p);
     const st = sim?.wire[w.id];
     const sig = sim?.netSignal[w.id];
+    const iss = wireIssue(design, w);
     return (
       <aside className="inspector">
         <div className="ins-head">
@@ -56,6 +58,13 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
             </div>
           )}
         </div>
+        {iss && (
+          <div className={`sec wire-issue ${iss.sev}`}>
+            <div className="sec-h">{iss.sev === 'crit' ? '⛔ ต่อผิด อันตราย' : '⚠️ ควรตรวจสอบ'}</div>
+            <p>{iss.msg}</p>
+            {iss.fix && <p className="check-fix">วิธีแก้: {iss.fix}</p>}
+          </div>
+        )}
         <div className="sec">
           <div className="sec-h">สีสาย</div>
           <div className="swatches">
@@ -107,7 +116,7 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
 
   const live: [string, string][] = [];
   if (sim && r) {
-    live.push(['สถานะไฟ', r.fault ? `FAULT: ${r.fault}` : r.tripped ? `TRIPPED (${r.tripReason ?? ''})` : r.powered ? 'มีไฟ / ทำงาน' : 'ไม่มีไฟ']);
+    live.push(['สถานะไฟ', r.damaged ? 'เสียหาย (พัง)' : r.fault ? `FAULT: ${r.fault}` : r.tripped ? `TRIPPED (${r.tripReason ?? ''})` : r.powered ? 'มีไฟ / ทำงาน' : 'ไม่มีไฟ']);
     if (r.src) live.push(['แหล่งจ่าย', `${design.comps.find((x) => x.id === r.src!.split('~')[0])?.label ?? r.src} (${r.supply === 'dc' ? '24VDC' : r.supply === '3p' ? '400V 3φ' : '230VAC'})`]);
     if (r.current !== undefined && (r.current > 0 || r.powered)) live.push(['กระแส', `${fmt(r.current, 2)} A`]);
     if (r.powerW !== undefined && r.powerW > 0) live.push(['กำลังไฟ', r.powerW >= 1000 ? `${fmt(r.powerW / 1000, 2)} kW` : `${fmt(r.powerW, 1)} W`]);
@@ -178,6 +187,15 @@ export function Inspector({ design, sel, sim, onComp, onWire, onDelete, onAction
           </datalist>
         </label>
       </div>
+
+      {r?.damaged && (
+        <div className="sec wire-issue crit">
+          <div className="sec-h">💥 อุปกรณ์เสียหาย</div>
+          <p>{r.damaged}</p>
+          <p className="check-fix">แก้สายที่ต่อผิดก่อน แล้วค่อยเปลี่ยนอุปกรณ์ใหม่ ไม่อย่างนั้นตัวใหม่จะพังซ้ำ</p>
+          <button className="btn warn full" onClick={() => onAction(c.id, 'repair')}>เปลี่ยนอุปกรณ์ใหม่</button>
+        </div>
+      )}
 
       {sim && live.length > 0 && (
         <div className="sec live">

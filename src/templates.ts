@@ -158,6 +158,7 @@ function factory(): Design {
   b.w(Q1, 'out', EM, 'in');
   b.w(EM, 'out', VFD, 'in');
   b.w(VFD, 'out', P101, 'U');
+  b.w(G1, 'PE', P101, 'PE');
 
   const Q2 = b.add('mcb2', 240, 220, 'Q2 CTRL', { rating: 16 });
   const PSU = b.add('psu24', 440, 220, 'PSU-1', {}, 0);
@@ -386,6 +387,7 @@ function backup(): Design {
   b.w(ATS, 'O', Q1, 'in');
   b.w(Q1, 'out', EM, 'in');
   b.w(EM, 'out', M1, 'U');
+  b.w(G1, 'PE', M1, 'PE');
 
   const Q2 = b.add('mcb2', 260, 380, 'Q2 IT', { rating: 10 }, 0);
   const UPS = b.add('ups', 480, 380, 'UPS-1', { backupMin: 3 }, 0);

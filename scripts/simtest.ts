@@ -1,7 +1,9 @@
 import { TEMPLATES } from '../src/templates';
-import { newSim, step, setPressed } from '../src/sim';
+import { newSim, step, setPressed, repair } from '../src/sim';
 import type { Design } from '../src/types';
 import { missingAdvice } from '../src/advice';
+import { checkWiring } from '../src/check';
+import { DEF_MAP } from '../src/library';
 
 const run = (d: Design, secs: number, s = newSim()) => {
   for (let i = 0; i < secs * 5; i++) step(d, s, 0.2);
@@ -242,6 +244,41 @@ for (const id of ['field', 'relay', 'analog', 'led', 'process', 'timer']) {
   byLabel(d, 'S0 E-STOP').props.pressed = false;
   run(d, 1, s);
   check('conveyor: stays off after E-stop release', !r('M1 CONVEYOR').powered);
+}
+
+{
+  const mk = (type: string, label: string, x = 0, y = 0) => ({ id: label, type, x, y, label, brand: '', model: '', props: { ...DEF_MAP[type].props } });
+  const w = (a: string, pa: string, b: string, pb: string) => ({ id: `${a}.${pa}-${b}.${pb}`, a: { c: a, p: pa }, b: { c: b, p: pb } });
+  const d: Design = {
+    name: 'wrong',
+    comps: [mk('grid1', 'GRID'), mk('prox', 'B1'), mk('psu24', 'PS1'), mk('relay', 'K1'), mk('pilot', 'H1')],
+    wires: [w('GRID', 'L', 'B1', 'P'), w('GRID', 'N', 'B1', 'M'), w('GRID', 'L', 'PS1', 'L'), w('GRID', 'N', 'PS1', 'N'),
+      w('GRID', 'L', 'K1', 'A1'), w('GRID', 'N', 'K1', 'A2'), w('PS1', 'P', 'K1', 'COM'), w('K1', 'NC', 'H1', 'P'), w('H1', 'M', 'PS1', 'M')],
+  };
+  const issues = checkWiring(d);
+  check('check: predicts sensor burns on 230V', issues.some((i) => i.sev === 'crit' && i.id === 'dmg:B1'), issues.map((i) => i.id).join(','));
+  check('check: predicts 24V relay coil burns on 230V', issues.some((i) => i.id === 'dmg:K1'));
+  check('check: warns PSU has no breaker', issues.some((i) => i.id === 'prot:PS1'));
+  const s = run(d, 1);
+  check('damage: sensor on 230V is destroyed', !!s.rt.B1.damaged && !s.rt.B1.powered, s.rt.B1.damaged);
+  check('damage: alarm raised', !!s.activeAlarms['B1:dmg']);
+  check('damage: burnt relay falls back to NC', !s.rt.K1.out && !!s.rt.H1.powered);
+  d.wires = d.wires.filter((x) => x.a.c !== 'GRID' || x.b.c === 'PS1');
+  d.wires.push(w('PS1', 'P', 'B1', 'P'), w('PS1', 'M', 'B1', 'M'));
+  run(d, 1, s);
+  check('damage: stays broken after rewiring', !!s.rt.B1.damaged && !s.rt.B1.powered);
+  repair(s, 'B1');
+  run(d, 1, s);
+  check('damage: replaced sensor works on 24V', !s.rt.B1.damaged && !!s.rt.B1.powered);
+}
+
+for (const t of TEMPLATES) {
+  const d = t.build();
+  const crit = checkWiring(d).filter((i) => i.sev === 'crit');
+  check(`${t.id}: no dangerous wiring`, crit.length === 0, crit.map((i) => i.msg).join(' | '));
+  const s = run(d, 3);
+  const dmg = d.comps.filter((c) => s.rt[c.id]?.damaged).map((c) => c.label);
+  check(`${t.id}: nothing damaged`, dmg.length === 0, dmg.join(', '));
 }
 
 console.log(fail ? `\n${fail} FAILED` : '\nALL PASSED');

@@ -7,7 +7,9 @@ import { Inspector } from './Inspector';
 import { BottomPanel } from './BottomPanel';
 import { TEMPLATES, newId } from './templates';
 import { DrawingDialog } from './DrawingDialog';
-import { forceTrip, newSim, resetTrip, setPressed, SimState, step } from './sim';
+import { forceTrip, newSim, repair, resetTrip, setPressed, SimState, step } from './sim';
+import { CheckDialog } from './CheckDialog';
+import { checkWiring, Issue, wireIssue } from './check';
 import type { CtlAction } from './CompView';
 
 const LS_KEY = 'wirelab.design.v1';
@@ -52,7 +54,10 @@ export default function App() {
   const [preset, setPreset] = useState('process');
   const [help, setHelp] = useState(false);
   const [drawingOpen, setDrawingOpen] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [critCount, setCritCount] = useState(0);
   const simRef = useRef<SimState | null>(null);
+  const burnt = useRef(new Set<string>());
   const hist = useRef<Record<string, number[]>>({});
   const lastHist = useRef(-1);
   const clipboard = useRef<{ comps: Comp[]; wires: Wire[] } | null>(null);
@@ -61,7 +66,7 @@ export default function App() {
   const showToast = useCallback((m: string) => {
     setToast(m);
     window.clearTimeout((showToast as any)._t);
-    (showToast as any)._t = window.setTimeout(() => setToast(null), 2600);
+    (showToast as any)._t = window.setTimeout(() => setToast(null), Math.max(2600, m.length * 55));
   }, []);
 
   const update = useCallback((fn: (d: Design) => Design, history = true) => {
@@ -97,6 +102,11 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [design]);
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setCritCount(checkWiring(design).filter((i) => i.sev === 'crit').length), 700);
+    return () => window.clearTimeout(t);
+  }, [design]);
+
   // ─────────────── Simulation loop ───────────────
   const doStep = useCallback((dt: number) => {
     const s = simRef.current;
@@ -114,8 +124,14 @@ export default function App() {
         }
       }
     }
+    for (const c of designRef.current.comps) {
+      const why = s.rt[c.id]?.damaged;
+      if (why && !burnt.current.has(c.id)) showToast(`💥 ${c.label} พัง — ${why}`);
+      if (why) burnt.current.add(c.id);
+      else burnt.current.delete(c.id);
+    }
     setTick((x) => x + 1);
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (!running) return;
@@ -137,6 +153,7 @@ export default function App() {
     setRunning(false);
     simRef.current = null;
     hist.current = {};
+    burnt.current.clear();
     setTick((x) => x + 1);
   };
 
@@ -192,11 +209,10 @@ export default function App() {
         (w) => (w.a.c === a.c && w.a.p === a.p && w.b.c === b.c && w.b.p === b.p) || (w.a.c === b.c && w.a.p === b.p && w.b.c === a.c && w.b.p === a.p),
       );
       if (dup) return;
-      const pow = ['L', 'N', 'P3', 'DC+', 'DC-'];
-      if (pow.includes(pa.kind) && pow.includes(pb.kind) && pa.kind !== pb.kind && !(pa.kind === 'L' && pb.kind === 'P3') && !(pa.kind === 'P3' && pb.kind === 'L'))
-        showToast(`⚠️ ระวัง: ต่อ ${pa.kind} เข้ากับ ${pb.kind} — อาจเกิดลัดวงจรเมื่อจำลอง`);
-      const id = newId('w');
-      update((dd) => ({ ...dd, wires: [...dd.wires, { id, a, b }] }));
+      const wire = { id: newId('w'), a, b };
+      const iss = wireIssue({ ...d, wires: [...d.wires, wire] }, wire);
+      if (iss) showToast(`${iss.sev === 'crit' ? '⛔' : '⚠️'} ${iss.msg}`);
+      update((dd) => ({ ...dd, wires: [...dd.wires, wire] }));
     },
     [update, showToast],
   );
@@ -349,9 +365,15 @@ export default function App() {
     [running, doStep],
   );
 
-  const onAction = (id: string, a: 'toggle' | 'reset' | 'test') => {
+  const onAction = (id: string, a: 'toggle' | 'reset' | 'test' | 'repair') => {
     const s = simRef.current;
     if (a === 'toggle') onCtl(id, 'down');
+    if (a === 'repair' && s) {
+      repair(s, id);
+      burnt.current.delete(id);
+      if (running) doStep(0);
+      else setTick((x) => x + 1);
+    }
     if (a === 'reset' && s) {
       resetTrip(s, id);
       setTick((x) => x + 1);
@@ -386,6 +408,18 @@ export default function App() {
     }
     const k = Math.min(1.4, Math.max(0.2, Math.min((r.width - 60) / (x1 - x0 + 40), (r.height - 60) / (y1 - y0 + 40))));
     setView({ k, x: (r.width - (x1 - x0) * k) / 2 - x0 * k, y: (r.height - (y1 - y0) * k) / 2 - y0 * k });
+  };
+
+  const showIssue = (issue: Issue) => {
+    setCheckOpen(false);
+    setSel(issue.wire ? { comps: [], wire: issue.wire } : { comps: issue.comps, wire: null });
+    const c = designRef.current.comps.find((x) => x.id === issue.comps[0]);
+    const el = document.querySelector('.canvas') as SVGSVGElement | null;
+    const r = el?.getBoundingClientRect();
+    if (!c || !r) return;
+    const df = DEF_MAP[c.type];
+    const k = Math.max(view.k, 0.8);
+    setView({ k, x: r.width / 2 - (c.x + df.w / 2) * k, y: r.height / 2 - (c.y + df.h / 2) * k });
   };
 
   useEffect(() => {
@@ -482,6 +516,9 @@ export default function App() {
               ))}
             </select>
             <button className={`btn ${bottomOpen ? 'on' : ''}`} onClick={() => setBottomOpen(!bottomOpen)}>▣ Live display</button>
+            <button className={`btn check-btn ${critCount ? 'bad' : ''}`} onClick={() => setCheckOpen(true)} title="ตรวจหาจุดต่อผิดก่อนจ่ายไฟ">
+              ตรวจสอบการต่อไฟ{critCount > 0 && <span className="badge">{critCount}</span>}
+            </button>
             <button className="btn" onClick={() => setDrawingOpen(true)}>Export แบบไฟฟ้า</button>
           </div>
           <Canvas
@@ -538,6 +575,7 @@ export default function App() {
         <span className="mono">{sim ? sim.t.toFixed(1) : '0.0'} s</span>
       </footer>
       {drawingOpen && <DrawingDialog design={design} onClose={() => setDrawingOpen(false)} />}
+      {checkOpen && <CheckDialog design={design} onClose={() => setCheckOpen(false)} onShow={showIssue} />}
       {help && (
         <div className="help-dialog" onClick={() => setHelp(false)}>
           <div className="help-card" onClick={(e) => e.stopPropagation()}>
@@ -548,6 +586,7 @@ export default function App() {
               <li>ลากจากขั้วหนึ่งไปอีกขั้วเพื่อเดินสาย สีของสายบอกชนิดสัญญาณ</li>
               <li>คลิกอุปกรณ์เพื่อเปลี่ยนชื่อ แบรนด์ และค่าเซนเซอร์ทางด้านขวา</li>
               <li>ถ้าไม่รู้จะต่อกับอะไร ดูหัวข้อ “ควรต่อกับอะไร” ทางขวา หรือชี้ที่ขั้วบนแปลน</li>
+              <li>กด “ตรวจสอบการต่อไฟ” ก่อน Run เพื่อหาจุดต่อผิด เช่น เอาไฟ 230V เข้าเซนเซอร์ 24V — ถ้าจ่ายไฟจริงอุปกรณ์จะพังจนกว่าจะกดเปลี่ยนใหม่</li>
               <li>กด Run แล้วกดสวิตช์หรือเบรกเกอร์บนแปลน ดูผลที่โหลดและจอ</li>
               <li>Live display เปิดจอ HMI, กราฟ, Alarm และตารางไฟฟ้า</li>
               <li>Export JSON เก็บวงจร · Import เปิดกลับมา งานล่าสุดถูกจำในเบราว์เซอร์</li>

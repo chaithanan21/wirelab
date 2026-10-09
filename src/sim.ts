@@ -1,4 +1,4 @@
-import type { Comp, CompDef, Design } from './types';
+import type { Comp, CompDef, Design, PortDef } from './types';
 import { COMM_KINDS, DEF_MAP } from './library';
 
 export interface Signal {
@@ -61,6 +61,7 @@ export interface RT {
   lamps?: boolean[];
   speed?: number;
   dcLoad?: number;
+  damaged?: string;
 }
 
 export interface Plant {
@@ -194,6 +195,7 @@ function activeLinks(c: Comp, df: CompDef, r: RT): [string, string][] {
 
 function injections(c: Comp, df: CompDef, r: RT): [string, string][] {
   const id = c.id;
+  if (r.damaged) return [];
   switch (df.beh) {
     case 'grid1':
       return c.props.on !== false && !r.fault ? [['L', id + '|L'], ['N', id + '|N'], ['PE', id + '|E']] : [['PE', id + '|E']];
@@ -525,6 +527,14 @@ function updateStates(d: Design, s: SimState, n: Nets) {
     if (!df) continue;
     const r = R(s, c.id);
     const id = c.id;
+    if (r.damaged) {
+      Object.assign(r, { powered: false, on: false, out: false, coil: false, run: false, freq: 0, src: undefined, supply: undefined, inOk: false });
+      if (r.dos) r.dos = r.dos.map(() => false);
+      if (r.lamps) r.lamps = r.lamps.map(() => false);
+      r.ai = r.ai?.map(() => null);
+      r.di = r.di?.map(() => false);
+      continue;
+    }
     const sup = supplyOf(c, df, n);
     r.src = sup?.src;
     r.supply = sup?.type;
@@ -651,6 +661,81 @@ function solve(d: Design, s: SimState): Nets {
     if (stateSig(s) === before) break;
   }
   return n;
+}
+
+// ──────────────────── Overvoltage damage ────────────────────
+
+const LV_X_PORTS: Record<string, RegExp> = {
+  sensor_d: /^OUT$/,
+  load_dc: /^P$/,
+  tower: /^[RYG]$/,
+  plc: /^D[IO]\d$/,
+  rio: /^DI\d$/,
+  edge: /^DI\d$/,
+  relay: /^A[12]$/,
+  timer: /^A[12]$/,
+  vfd: /^RUN$/,
+};
+
+export function lvPorts(df: CompDef): PortDef[] {
+  const x = LV_X_PORTS[df.beh];
+  return df.ports.filter((p) => p.kind === 'DC+' || p.kind === 'DC-' || (!!x && x.test(p.id)));
+}
+
+const AC_LIVE: Record<string, string> = { MV: '22kV', '3': '400VAC 3φ', L: '230VAC' };
+
+function checkDamage(d: Design, s: SimState, n: Nets): boolean {
+  let hit = false;
+  for (const c of d.comps) {
+    const df = DEF_MAP[c.type];
+    const r = R(s, c.id);
+    if (!df || r.damaged) continue;
+    for (const p of lvPorts(df)) {
+      const set = toks(n, c.id, p.id);
+      if (!set) continue;
+      let live: string | undefined;
+      let from = '';
+      for (const t of set) {
+        const i = t.lastIndexOf('|');
+        const v = AC_LIVE[t.slice(i + 1)];
+        if (v && (!live || v === '400VAC 3φ' || v === '22kV')) {
+          live = v;
+          from = d.comps.find((x) => x.id === srcCompId(t.slice(0, i)))?.label ?? '';
+        }
+      }
+      if (live) {
+        r.damaged = `ได้รับไฟ ${live}${from ? ` จาก ${from}` : ''} ที่ขั้ว ${p.label} (พิกัด 24VDC)`;
+        hit = true;
+        break;
+      }
+    }
+  }
+  return hit;
+}
+
+export function repair(s: SimState, id: string) {
+  const r = s.rt[id];
+  if (r) r.damaged = undefined;
+}
+
+export function unprotectedLoads(d: Design, s: SimState): string[] {
+  const loads = d.comps.filter((c) => {
+    const df = DEF_MAP[c.type];
+    const r = R(s, c.id);
+    const src = r.src ? DEF_MAP[d.comps.find((x) => x.id === srcCompId(r.src!))?.type ?? '']?.beh : undefined;
+    return (
+      df && r.powered && !!src && ['grid1', 'grid3', 'gen', 'tr'].includes(src) &&
+      ['load_ac', 'motor3', 'psu', 'ups', 'vfd', 'scada', 'monitor', 'pmeter', 'tempctl'].includes(df.beh)
+    );
+  });
+  const safe = new Set<string>();
+  for (const c of d.comps) {
+    const df = DEF_MAP[c.type];
+    if (!df || !['breaker', 'rcbo', 'fuse', 'swg', 'mdb'].includes(df.beh) || c.props.on === false || R(s, c.id).tripped) continue;
+    const n2 = buildNets(d, s, c.id);
+    for (const x of loads) if (!supplyOf(x, DEF_MAP[x.type], n2)) safe.add(x.id);
+  }
+  return loads.filter((x) => !safe.has(x.id)).map((x) => x.id);
 }
 
 // ──────────────────── Faults ────────────────────
@@ -1161,6 +1246,7 @@ function updateAlarms(d: Design, s: SimState) {
     const r = R(s, c.id);
     if (r.tripped) act.push({ id: c.id + ':trip', sev: 'crit', msg: `${c.label} ทริป — ${r.tripReason ?? ''}` });
     if (r.fault) act.push({ id: c.id + ':fault', sev: 'crit', msg: `${c.label} ${r.fault} — ตรวจสอบการเดินสาย` });
+    if (r.damaged) act.push({ id: c.id + ':dmg', sev: 'crit', msg: `${c.label} เสียหาย — ${r.damaged}` });
     if ((df.beh === 'grid1' || df.beh === 'grid3' || df.beh === 'gridmv') && c.props.on === false) act.push({ id: c.id + ':off', sev: 'warn', msg: `${c.label} ไฟดับ (Power outage)` });
     if (df.beh === 'tr' && r.powered && (r.powerW ?? 0) > (+c.props.kva || 1000) * 1000)
       act.push({ id: c.id + ':kva', sev: 'warn', msg: `${c.label} โหลดเกินพิกัด ${((r.powerW ?? 0) / 1000).toFixed(0)} kW / ${c.props.kva} kVA` });
@@ -1211,6 +1297,7 @@ export function step(d: Design, s: SimState, dt: number) {
   updatePlant(d, s, dt);
   timeStep(d, s, dt);
   let n = solve(d, s);
+  for (let k = 0; k < 4 && checkDamage(d, s, n); k++) n = solve(d, s);
   for (let k = 0; k < 4 && handleShorts(d, s, n); k++) n = solve(d, s);
   if (computeCurrents(d, s, dt)) {
     n = solve(d, s);

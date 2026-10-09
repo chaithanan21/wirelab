@@ -527,7 +527,7 @@ export const CompView = React.memo(function CompView({ c, df, sim, symbol, selec
 
   const statusColor = !running
     ? '#334155'
-    : r?.tripped || r?.fault
+    : r?.tripped || r?.fault || r?.damaged
       ? '#ef4444'
       : pw
         ? '#22c55e'
@@ -1035,6 +1035,19 @@ export const CompView = React.memo(function CompView({ c, df, sim, symbol, selec
           </text>
           {content()}
         </>
+      )}
+      {running && r?.damaged && (
+        <g pointerEvents="none">
+          <rect x={1} y={1} width={w - 2} height={h - 2} rx={symbol ? 3 : 8} fill="#7f1d1d" fillOpacity={0.55} stroke="#ef4444" strokeWidth={2} />
+          <path d={`M10 10L${w - 10} ${h - 10}M${w - 10} 10L10 ${h - 10}`} stroke="#ef4444" strokeOpacity={0.45} strokeWidth={2} />
+          {[0, 1, 2].map((i) => (
+            <circle key={i} className={`burnt-smoke s${i + 1}`} cx={w / 2 - 12 + i * 12} cy={h / 2 - 14} r={6} fill="#94a3b8" />
+          ))}
+          <rect x={w / 2 - 34} y={h / 2 - 9} width={68} height={18} rx={9} fill="#dc2626" />
+          <text x={w / 2} y={h / 2 + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#fff">
+            เสียหาย
+          </text>
+        </g>
       )}
       {df.ports.map((p) => {
         const col = KIND_COLOR[p.kind];
