@@ -479,9 +479,9 @@ export default function App() {
   const submitLogin = async () => {
     if (!login || login.busy) return;
     setLogin({ ...login, busy: true, err: '' });
-    const ok = await verifyLogin(login.user, login.pw);
-    if (!ok) {
-      setLogin({ ...login, busy: false, err: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+    const res = await verifyLogin(login.user, login.pw);
+    if (res !== 'ok') {
+      setLogin({ ...login, busy: false, err: res === 'denied' ? 'ไม่มีสิทธิ์เข้าถึง' : 'เชื่อมต่อระบบยืนยันตัวตนไม่ได้ ลองใหม่อีกครั้ง' });
       return;
     }
     setUnlocked(true);
