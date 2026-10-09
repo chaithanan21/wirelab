@@ -24,7 +24,7 @@ export interface Template {
   id: string;
   name: string;
   desc: string;
-  group: 'simple' | 'full';
+  group: 'simple' | 'plant' | 'full';
   build: () => Design;
 }
 
@@ -430,6 +430,216 @@ function plantPower(): Design {
   return { name: 'โรงงาน: Switchgear → TR → MDB', comps: b.comps, wires: b.wires };
 }
 
+function pumpStation(): Design {
+  const b = new B();
+  const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
+  const Q1 = b.add('mccb3', 240, 40, 'Q1 PUMP 32A', { rating: 32 }, 1);
+  const KM = b.add('contactor', 460, 30, 'KM1', {}, 0);
+  const F1 = b.add('overload', 700, 30, 'F1 OLR', { setting: 16 }, 0);
+  const P = b.add('pump3', 940, 40, 'P-201 TRANSFER', { kw: 7.5, process: 'pump' }, 0);
+  b.w(G, 'P3', Q1, 'in');
+  b.w(Q1, 'out', KM, 'in');
+  b.w(KM, 'out', F1, 'in');
+  b.w(F1, 'out', P, 'U');
+  b.w(G, 'PE', P, 'PE');
+
+  const Q2 = b.add('mcb2', 240, 240, 'Q2 CTRL 6A', { rating: 6 }, 0);
+  const PSU = b.add('psu24', 460, 240, 'PSU-1', {}, 0);
+  b.w(G, 'L1', Q2, 'L1');
+  b.w(G, 'N', Q2, 'N1');
+  b.w(Q2, 'L2', PSU, 'L');
+  b.w(Q2, 'N2', PSU, 'N');
+
+  const LSL = b.add('float_sw', 40, 420, 'LSL-201 ต่ำ', { mode: 'process', sp: 2.5 }, 0);
+  const LSH = b.add('float_sw', 40, 560, 'LSH-201 สูง', { mode: 'process', sp: 4 }, 0);
+  const K1 = b.add('relay', 240, 410, 'K1 LOW', {}, 0);
+  const K2 = b.add('relay', 240, 560, 'K2 HIGH', {}, 0);
+  const PLC = b.add('plc', 480, 400, 'PLC-1', {
+    do1_mode: 'START DI1 / STOP DI2', do1_sp: 0,
+    do2_mode: 'START DI1 / STOP DI2', do2_sp: 0,
+    do3_mode: 'AI1>SP', do3_sp: 3.8,
+    do4_mode: 'ANY ALARM', do4_sp: 0,
+  }, 0);
+  for (const [ls, k, di] of [[LSL, K1, 'DI1'], [LSH, K2, 'DI2']]) {
+    b.w(PSU, 'P', ls, 'COM');
+    b.w(ls, 'NO', k, 'A1');
+    b.w(k, 'A2', PSU, 'M');
+    b.w(PSU, 'P', k, 'COM');
+    b.w(k, 'NC', PLC, di);
+  }
+  b.w(PLC, 'VP', PSU, 'P');
+  b.w(PLC, 'VM', PSU, 'M');
+  b.w(PLC, 'DO1', F1, 'a95');
+  b.w(F1, 'a96', KM, 'A1');
+  b.w(KM, 'A2', PSU, 'M');
+
+  const LT = b.add('level_tx', 40, 700, 'LT-201', { hi: 4.6, lo: 0.6 }, 0);
+  const PT = b.add('pressure_tx', 40, 820, 'PT-201', { hi: 7.5, lo: '' }, 0);
+  [LT, PT].forEach((s, i) => {
+    b.w(s, 'P', PSU, 'P');
+    b.w(s, 'M', PSU, 'M');
+    b.w(s, 'OUT', PLC, `AI${i + 1}`);
+  });
+
+  const TW = b.add('tower', 780, 400, 'TW-201', {}, 0);
+  b.w(PLC, 'DO2', TW, 'G');
+  b.w(PLC, 'DO3', TW, 'Y');
+  b.w(PLC, 'DO4', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+
+  const ESW = b.add('eswitch', 480, 680, 'SW-ETH-1', {}, 0);
+  const HMI = b.add('hmi', 760, 640, 'HMI-201', {}, 0);
+  for (const n of [ESW, HMI]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(PLC, 'ETH', ESW, 'E1');
+  b.w(ESW, 'E2', HMI, 'ETH');
+  return { name: 'โรงงาน: ห้องปั๊มน้ำ คุมระดับถังอัตโนมัติ', comps: b.comps, wires: b.wires };
+}
+
+function compressorRoom(): Design {
+  const b = new B();
+  const G = b.add('grid3', 40, 60, 'PEA 3φ 400V');
+  const MDB = b.add('mdb', 240, 20, 'MDB-1 400A', { rating: 400, f3: false, f4: false }, 0);
+  b.w(G, 'P3', MDB, 'IN');
+  b.w(G, 'L1', MDB, 'Lin');
+  b.w(G, 'N', MDB, 'N');
+  b.w(G, 'PE', MDB, 'PE');
+
+  const Q1 = b.add('mccb3', 520, 20, 'Q1 COMP 63A', { rating: 63 }, 0);
+  const EM = b.add('emeter', 740, 20, 'EM-301', {}, 0);
+  const VFD = b.add('vfd', 980, 10, 'VFD-301', { freq: 45, accel: 6 }, 0);
+  const AC = b.add('motor3', 1240, 30, 'AC-301 COMPRESSOR', { kw: 22, rpm: 2950, process: 'pump' }, 2);
+  b.w(MDB, 'F1', Q1, 'in');
+  b.w(Q1, 'out', EM, 'in');
+  b.w(EM, 'out', VFD, 'in');
+  b.w(VFD, 'out', AC, 'U');
+  b.w(MDB, 'PE', AC, 'PE');
+
+  const Q2 = b.add('mccb3', 520, 220, 'Q2 DRYER 16A', { rating: 16 }, 1);
+  const DRY = b.add('motor3', 740, 220, 'AD-301 AIR DRYER', { kw: 2.2, process: 'none' }, 4);
+  b.w(MDB, 'F2', Q2, 'in');
+  b.w(Q2, 'out', DRY, 'U');
+  b.w(MDB, 'PE', DRY, 'PE');
+
+  const Q3 = b.add('mcb2', 520, 400, 'Q3 CTRL 6A', { rating: 6 }, 0);
+  const PSU = b.add('psu24', 740, 400, 'PSU-1', {}, 2);
+  b.w(MDB, 'L', Q3, 'L1');
+  b.w(MDB, 'N', Q3, 'N1');
+  b.w(Q3, 'L2', PSU, 'L');
+  b.w(Q3, 'N2', PSU, 'N');
+
+  const S1 = b.add('pb_no', 40, 420, 'S1 START', {}, 0);
+  const S2 = b.add('pb_nc', 40, 540, 'S2 STOP', {}, 0);
+  const PT = b.add('pressure_tx', 40, 660, 'PT-301 AIR', { hi: 6.5, lo: '' }, 1);
+  const VT = b.add('vib_tx', 40, 780, 'VT-301', {}, 0);
+  const PLC = b.add('plc', 260, 560, 'PLC-1', {
+    do1_mode: 'START DI1 / STOP DI2', do1_sp: 0,
+    do2_mode: 'START DI1 / STOP DI2', do2_sp: 0,
+    do3_mode: 'AI1>SP', do3_sp: 6,
+    do4_mode: 'ANY ALARM', do4_sp: 0,
+  }, 0);
+  b.w(S1, 'in', PSU, 'P');
+  b.w(S1, 'out', PLC, 'DI1');
+  b.w(S2, 'in', PSU, 'P');
+  b.w(S2, 'out', PLC, 'DI2');
+  [PT, VT].forEach((s, i) => {
+    b.w(s, 'P', PSU, 'P');
+    b.w(s, 'M', PSU, 'M');
+    b.w(s, 'OUT', PLC, `AI${i + 1}`);
+  });
+  b.w(PLC, 'VP', PSU, 'P');
+  b.w(PLC, 'VM', PSU, 'M');
+  b.w(PLC, 'DO1', VFD, 'RUN');
+
+  const TW = b.add('tower', 560, 560, 'TW-301', {}, 0);
+  b.w(PLC, 'DO2', TW, 'G');
+  b.w(PLC, 'DO3', TW, 'Y');
+  b.w(PLC, 'DO4', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+
+  const ESW = b.add('eswitch', 260, 820, 'SW-ETH-1', {}, 0);
+  const HMI = b.add('hmi', 560, 760, 'HMI-301', {}, 0);
+  for (const n of [ESW, HMI]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(PLC, 'ETH', ESW, 'E1');
+  b.w(ESW, 'E2', HMI, 'ETH');
+  b.w(ESW, 'E3', EM, 'ETH');
+  b.w(ESW, 'E4', VFD, 'ETH');
+  return { name: 'โรงงาน: ห้องคอมเพรสเซอร์ลม VFD', comps: b.comps, wires: b.wires };
+}
+
+function conveyorLine(): Design {
+  const b = new B();
+  const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
+  const Q1 = b.add('mccb3', 240, 40, 'Q1 CONV 20A', { rating: 20 }, 3);
+  const KM = b.add('contactor', 460, 30, 'KM1', {}, 1);
+  const F1 = b.add('overload', 700, 30, 'F1 OLR', { setting: 8 }, 1);
+  const M = b.add('motor3', 940, 40, 'M1 CONVEYOR', { kw: 3, process: 'none' }, 2);
+  b.w(G, 'P3', Q1, 'in');
+  b.w(Q1, 'out', KM, 'in');
+  b.w(KM, 'out', F1, 'in');
+  b.w(F1, 'out', M, 'U');
+  b.w(G, 'PE', M, 'PE');
+
+  const Q2 = b.add('mcb2', 240, 240, 'Q2 CTRL 6A', { rating: 6 }, 1);
+  const PSU = b.add('psu24', 460, 240, 'PSU-1', {}, 1);
+  b.w(G, 'L1', Q2, 'L1');
+  b.w(G, 'N', Q2, 'N1');
+  b.w(Q2, 'L2', PSU, 'L');
+  b.w(Q2, 'N2', PSU, 'N');
+
+  const S0 = b.add('estop', 40, 420, 'S0 E-STOP', {}, 0);
+  const S2 = b.add('pb_nc', 40, 540, 'S2 STOP', {}, 0);
+  const S1 = b.add('pb_no', 40, 660, 'S1 START', {}, 0);
+  const B1 = b.add('photo', 40, 780, 'B1 ชิ้นงานเข้า', { mode: 'auto', period: 3 }, 0);
+  const B2 = b.add('prox', 40, 900, 'B2 ชิ้นงานโลหะ', { mode: 'auto', period: 7 }, 1);
+  const PLC = b.add('plc', 300, 440, 'PLC-1', {
+    do1_mode: 'START DI1 / STOP DI2', do1_sp: 0,
+    do2_mode: 'START DI1 / STOP DI2', do2_sp: 0,
+    do3_mode: 'DI3', do3_sp: 0,
+    do4_mode: 'DI4', do4_sp: 0,
+  }, 4);
+  b.w(PSU, 'P', S0, 'in');
+  b.w(S0, 'out', S2, 'in');
+  b.w(S2, 'out', PLC, 'DI2');
+  b.w(PSU, 'P', S1, 'in');
+  b.w(S1, 'out', PLC, 'DI1');
+  [B1, B2].forEach((s, i) => {
+    b.w(s, 'P', PSU, 'P');
+    b.w(s, 'M', PSU, 'M');
+    b.w(s, 'OUT', PLC, `DI${i + 3}`);
+  });
+  b.w(PLC, 'VP', PSU, 'P');
+  b.w(PLC, 'VM', PSU, 'M');
+  b.w(PLC, 'DO1', F1, 'a95');
+  b.w(F1, 'a96', KM, 'A1');
+  b.w(KM, 'A2', PSU, 'M');
+
+  const TW = b.add('tower', 620, 420, 'TW-1', {}, 0);
+  const Y1 = b.add('valve', 620, 580, 'Y1 คัดแยก', {}, 0);
+  b.w(PLC, 'DO2', TW, 'G');
+  b.w(PLC, 'DO3', TW, 'Y');
+  b.w(PSU, 'P', F1, 'a97');
+  b.w(F1, 'a98', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+  b.w(PLC, 'DO4', Y1, 'P');
+  b.w(Y1, 'M', PSU, 'M');
+
+  const ESW = b.add('eswitch', 300, 720, 'SW-ETH-1', {}, 0);
+  const HMI = b.add('hmi', 620, 700, 'HMI-1', {}, 0);
+  for (const n of [ESW, HMI]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(PLC, 'ETH', ESW, 'E1');
+  b.w(ESW, 'E2', HMI, 'ETH');
+  return { name: 'โรงงาน: ไลน์สายพานคัดแยกชิ้นงาน', comps: b.comps, wires: b.wires };
+}
+
 export const TEMPLATES: Template[] = [
   { id: 'field', name: 'Sensor → PLC → HMI', desc: 'พร็อกซิมิตี้ส่งเข้า PLC แล้วไฟแสดงสถานะและค่าขึ้น HMI', group: 'simple', build: sensorPlcHmi },
   { id: 'relay', name: 'Relay & motor control', desc: 'สวิตช์ 24V สั่งคอนแทคเตอร์เดินมอเตอร์ 3 เฟส', group: 'simple', build: relayMotor },
@@ -437,10 +647,13 @@ export const TEMPLATES: Template[] = [
   { id: 'led', name: 'LED indicator circuit', desc: 'สวิตช์เปิด-ปิดไฟแสดงสถานะ 24V', group: 'simple', build: ledCircuit },
   { id: 'process', name: 'Process data · Siemens', desc: 'SITOP → เซนเซอร์ความดัน → SIMATIC → SCALANCE → HMI', group: 'simple', build: processSiemens },
   { id: 'timer', name: 'Timer relay · Schneider', desc: 'หน่วงเวลาก่อนติดไฟแสดงสถานะ', group: 'simple', build: timerSchneider },
-  { id: 'plant', name: 'ไฟโรงงาน · Switchgear → TR → MDB', desc: '22kV ผ่านสวิตช์เกียร์และหม้อแปลง เข้าตู้เมน แล้วแยกไปมอเตอร์กับวงจร 24V', group: 'simple', build: plantPower },
   { id: 'blank', name: 'Empty plan', desc: 'แปลนว่าง', group: 'simple', build: () => ({ name: 'Empty plan', comps: [], wires: [] }) },
-  { id: 'factory', name: 'โรงงาน: Sensor Field → PLC → SCADA', desc: 'เซนเซอร์ 4-20mA → PLC → Ethernet → HMI, SCADA, จอใหญ่ + ฮีตเตอร์และปั๊ม', group: 'full', build: factory },
-  { id: 'dol', name: 'มอเตอร์ DOL Start/Stop + Overload', desc: 'สตาร์ทมอเตอร์แบบกดค้างตัวเอง มี E-Stop และไพลอตแลมป์', group: 'full', build: dol },
+  { id: 'plant', name: 'ไฟโรงงาน · Switchgear → TR → MDB', desc: '22kV ผ่านสวิตช์เกียร์และหม้อแปลง เข้าตู้เมน แล้วแยกไปมอเตอร์กับวงจร 24V', group: 'plant', build: plantPower },
+  { id: 'pumpstation', name: 'ห้องปั๊มน้ำ · คุมระดับถังอัตโนมัติ', desc: 'ลูกลอยระดับต่ำ/สูงผ่านรีเลย์เข้า PLC สั่งปั๊มเดิน-หยุดเอง พร้อม LT, PT, ทาวเวอร์ไลท์ และ HMI', group: 'plant', build: pumpStation },
+  { id: 'compressor', name: 'ห้องคอมเพรสเซอร์ลม · VFD + Energy meter', desc: 'MDB แยก feeder คอมเพรสเซอร์ 22kW ผ่านมิเตอร์และ VFD กับเครื่องทำลมแห้ง วัดแรงดันลมและการสั่น', group: 'plant', build: compressorRoom },
+  { id: 'conveyor', name: 'ไลน์สายพาน · คัดแยกชิ้นงาน', desc: 'Start/Stop + E-Stop สั่งสายพาน เซนเซอร์นับชิ้นงานและโซลินอยด์คัดชิ้นงานโลหะ', group: 'plant', build: conveyorLine },
+  { id: 'factory', name: 'โรงงาน: Sensor Field → PLC → SCADA', desc: 'เซนเซอร์ 4-20mA → PLC → Ethernet → HMI, SCADA, จอใหญ่ + ฮีตเตอร์และปั๊ม', group: 'plant', build: factory },
+  { id: 'dol', name: 'มอเตอร์ DOL Start/Stop + Overload', desc: 'สตาร์ทมอเตอร์แบบกดค้างตัวเอง มี E-Stop และไพลอตแลมป์', group: 'plant', build: dol },
   { id: 'house', name: 'ระบบไฟฟ้าในบ้าน + RCBO', desc: 'ตู้ไฟบ้าน สวิตช์ หลอดไฟ เต้ารับ และแอร์', group: 'full', build: house },
   { id: 'iot', name: 'IoT: LoRaWAN + Modbus → Cloud', desc: 'เซนเซอร์ไร้สายส่งขึ้นคลาวด์ผ่านเราเตอร์ 4G', group: 'full', build: iot },
   { id: 'backup', name: 'ไฟสำรอง ATS + Generator + UPS', desc: 'ไฟดับแล้วสลับไปเครื่องปั่นไฟ อัตโนมัติ', group: 'full', build: backup },

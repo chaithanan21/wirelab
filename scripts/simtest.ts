@@ -173,5 +173,76 @@ for (const id of ['field', 'relay', 'analog', 'led', 'process', 'timer']) {
   check('plant: feeder F1 off drops only the motor', !r('M1').powered && !!r('PS1').powered);
 }
 
+{
+  const d = TEMPLATES.find((t) => t.id === 'pumpstation')!.build();
+  const s = run(d, 3);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  const hmi = s.displays[byLabel(d, 'HMI-201').id];
+  check('pump: low level starts the pump', !!r('P-201 TRANSFER').powered && !!r('KM1').out, `level ${s.plant.level.toFixed(2)}m`);
+  check('pump: run lamp on', !!r('PLC-1').dos?.[1]);
+  check('pump: HMI online', hmi?.status === 'ok', `${hmi?.tags.length} tags`);
+  check('pump: no alarm while pumping', !r('PLC-1').dos?.[3]);
+  run(d, 25, s);
+  check('pump: high level stops the pump', !r('P-201 TRANSFER').powered && s.plant.level >= 3.9, `level ${s.plant.level.toFixed(2)}m`);
+  check('pump: high level lamp on', !!r('PLC-1').dos?.[2]);
+  run(d, 20, s);
+  check('pump: stays off between levels', !r('P-201 TRANSFER').powered, `level ${s.plant.level.toFixed(2)}m`);
+  run(d, 30, s);
+  check('pump: restarts at low level', !!r('P-201 TRANSFER').powered, `level ${s.plant.level.toFixed(2)}m`);
+}
+
+{
+  const d = TEMPLATES.find((t) => t.id === 'compressor')!.build();
+  const s = run(d, 2);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  check('compressor: idle before start', (r('VFD-301').freq ?? 0) < 1);
+  check('compressor: dryer on feeder F2', !!r('AD-301 AIR DRYER').powered);
+  setPressed(s, byLabel(d, 'S1 START').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S1 START').id, false);
+  run(d, 10, s);
+  check('compressor: VFD at 45Hz', Math.abs((r('VFD-301').freq ?? 0) - 45) < 1, `${r('VFD-301').freq?.toFixed(1)}Hz`);
+  check('compressor: air pressure built', s.plant.pressure > 4, `${s.plant.pressure.toFixed(2)}bar`);
+  check('compressor: meter reads compressor power', (r('EM-301').powerW ?? 0) > 10000, `${((r('EM-301').powerW ?? 0) / 1000).toFixed(1)}kW`);
+  check('compressor: MDB carries both feeders', (r('MDB-1 400A').current ?? 0) > (r('Q1 COMP 63A').current ?? 0), `${r('MDB-1 400A').current?.toFixed(1)}A`);
+  check('compressor: HMI online', s.displays[byLabel(d, 'HMI-301').id]?.status === 'ok');
+  byLabel(d, 'VFD-301').props.freq = 50;
+  run(d, 6, s);
+  check('compressor: high pressure lamp at 50Hz', !!r('PLC-1').dos?.[2], `${s.plant.pressure.toFixed(2)}bar`);
+  setPressed(s, byLabel(d, 'S2 STOP').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S2 STOP').id, false);
+  run(d, 10, s);
+  check('compressor: stops after STOP', (r('VFD-301').freq ?? 0) < 1);
+}
+
+{
+  const d = TEMPLATES.find((t) => t.id === 'conveyor')!.build();
+  const s = run(d, 2);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  check('conveyor: motor off initially', !r('M1 CONVEYOR').powered);
+  setPressed(s, byLabel(d, 'S1 START').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S1 START').id, false);
+  run(d, 1, s);
+  check('conveyor: START runs the belt', !!r('M1 CONVEYOR').powered && !!r('PLC-1').dos?.[1]);
+  let seen = false;
+  for (let i = 0; i < 20; i++) {
+    run(d, 0.2, s);
+    seen ||= !!r('PLC-1').di?.[2];
+  }
+  check('conveyor: photo sensor counts parts', seen);
+  byLabel(d, 'B2 ชิ้นงานโลหะ').props.mode = 'manual';
+  byLabel(d, 'B2 ชิ้นงานโลหะ').props.detect = true;
+  run(d, 0.6, s);
+  check('conveyor: metal part fires reject valve', !!r('Y1 คัดแยก').powered);
+  byLabel(d, 'S0 E-STOP').props.pressed = true;
+  run(d, 1, s);
+  check('conveyor: E-stop stops the belt', !r('M1 CONVEYOR').powered);
+  byLabel(d, 'S0 E-STOP').props.pressed = false;
+  run(d, 1, s);
+  check('conveyor: stays off after E-stop release', !r('M1 CONVEYOR').powered);
+}
+
 console.log(fail ? `\n${fail} FAILED` : '\nALL PASSED');
 process.exit(fail ? 1 : 0);

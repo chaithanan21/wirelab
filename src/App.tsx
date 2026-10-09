@@ -417,6 +417,7 @@ export default function App() {
   const alarmCount = sim ? Object.keys(sim.activeAlarms).length : 0;
 
   const simple = TEMPLATES.filter((t) => t.group === 'simple');
+  const plant = TEMPLATES.filter((t) => t.group === 'plant');
   const full = TEMPLATES.filter((t) => t.group === 'full');
   const loadPreset = () => {
     const t = TEMPLATES.find((x) => x.id === preset);
@@ -453,6 +454,11 @@ export default function App() {
             <select className="input preset" value={preset} onChange={(e) => setPreset(e.target.value)} title="วงจรตัวอย่าง">
               <optgroup label="วงจรง่าย">
                 {simple.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </optgroup>
+              <optgroup label="งานโรงงาน">
+                {plant.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </optgroup>
