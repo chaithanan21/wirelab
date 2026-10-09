@@ -246,6 +246,38 @@ for (const id of ['field', 'relay', 'analog', 'led', 'process', 'timer']) {
   check('mdbmon: M1 stops, feedback clears', !r('M1 PRODUCTION').powered && !r('PLC-1').di?.[2]);
 }
 
+for (const [id, drive, filler, pump, tt, sv] of [
+  ['pet', 'U1 CONTIFORM DRIVE', 'M2 MODULFILL + CAPPER', 'P-301 PRODUCT PUMP', 'TT-101 OVEN', 105],
+  ['beer', 'U1 BOTTLE WASHER', 'M2 FILLER + CROWNER', 'P-301 BEER FEED', 'TT-501 PASTEURISER', 62],
+] as const) {
+  const d = TEMPLATES.find((t) => t.id === id)!.build();
+  const s = run(d, 2);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  check(`${id}: line idle before start`, (r(drive).freq ?? 0) < 1 && !r(filler).powered);
+  check(`${id}: bowl pump fills on low level`, !!r(pump).powered, `level ${s.plant.level.toFixed(2)}m`);
+  setPressed(s, byLabel(d, 'S1 LINE START').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S1 LINE START').id, false);
+  run(d, 12, s);
+  check(`${id}: main drive running`, (r(drive).freq ?? 0) > 35, `${r(drive).freq?.toFixed(1)}Hz`);
+  check(`${id}: filler running`, !!r(filler).powered && (r(filler).speed ?? 0) > 0.7);
+  run(d, 60, s);
+  check(`${id}: heater holds setpoint`, Math.abs(s.plant.temp - sv) < 4, `${s.plant.temp.toFixed(1)}°C`);
+  check(`${id}: bowl level held 2.4–3.6 m`, s.plant.level > 2.4 && s.plant.level < 3.6, `${s.plant.level.toFixed(2)}m`);
+  let rejects = 0;
+  const alarms = new Set<string>();
+  for (let i = 0; i < 150; i++) {
+    step(d, s, 0.2);
+    if (r('PLC-1 LINE').dos?.[id === 'pet' ? 1 : 2]) rejects++;
+    s.alarms.forEach((a) => alarms.add(a.msg));
+  }
+  check(`${id}: reject valve fires`, rejects > 0, `${rejects} steps`);
+  check(`${id}: no alarm in normal run`, alarms.size === 0, [...alarms].join('; '));
+  byLabel(d, 'S0 E-STOP').props.pressed = true;
+  run(d, 12, s);
+  check(`${id}: E-stop stops line`, (r(drive).freq ?? 0) < 1 && !r(filler).powered);
+}
+
 {
   const d = TEMPLATES.find((t) => t.id === 'conveyor')!.build();
   const s = run(d, 2);

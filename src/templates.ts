@@ -519,6 +519,243 @@ function mdbMonitoring(): Design {
   return { name: 'โรงงาน: Monitor MDB · Power meter → Modbus → SCADA', comps: b.comps, wires: b.wires };
 }
 
+function lineControl(b: B, MDB: string, heaterW: number, tic: { label: string; sv: number; hyst: number }) {
+  const Q5 = b.add('mcb2', 240, 230, 'Q5 CTRL 6A', { rating: 6 }, 0);
+  const Q6 = b.add('mcb2', 240, 420, 'Q6 HEATER 20A', { rating: 20 }, 0);
+  const PSU = b.add('psu24', 240, 620, 'PSU-1 24V', {}, 2);
+  b.w(MDB, 'L', Q5, 'L1');
+  b.w(MDB, 'N', Q5, 'N1');
+  b.w(Q5, 'L2', PSU, 'L');
+  b.w(Q5, 'N2', PSU, 'N');
+  b.w(MDB, 'L', Q6, 'L1');
+  b.w(MDB, 'N', Q6, 'N1');
+
+  const K1 = b.add('relay', 40, 1040, 'K1 HEATER', {}, 0);
+  const EH = b.add('heater', 240, 1050, tic.label.replace(/^TIC/, 'EH'), { power: heaterW }, 1);
+  const TIC = b.add('tempctl', 440, 1040, tic.label, { sv: tic.sv, hyst: tic.hyst }, 0);
+  const LIC = b.add('tempctl', 660, 1040, 'LIC-301 BOWL LEVEL', { sv: 3, hyst: 0.4 }, 3);
+  for (const t of [TIC, LIC]) {
+    b.w(t, 'L', Q5, 'L2');
+    b.w(t, 'N', Q5, 'N2');
+    b.w(PSU, 'P', t, 'C');
+  }
+  b.w(TIC, 'NO', K1, 'A1');
+  b.w(K1, 'A2', PSU, 'M');
+  b.w(K1, 'COM', Q6, 'L2');
+  b.w(K1, 'NO', EH, 'L');
+  b.w(EH, 'N', Q6, 'N2');
+  return { PSU, LIC, TIC, Q5 };
+}
+
+function linePlc(b: B, PSU: string, b1: [string, number], b2: [string, number], ai: string[], modes: Record<string, any>) {
+  const S0 = b.add('estop', 40, 1240, 'S0 E-STOP', {}, 1);
+  const S2 = b.add('pb_nc', 40, 1370, 'S2 LINE STOP', {}, 1);
+  const S1 = b.add('pb_no', 40, 1500, 'S1 LINE START', {}, 1);
+  const B1 = b.add('photo', 40, 1630, b1[0], { mode: 'auto', period: b1[1] }, 0);
+  const B2 = b.add('photo', 40, 1760, b2[0], { mode: 'auto', period: b2[1] }, 1);
+  const PLC = b.add('plc', 300, 1260, 'PLC-1 LINE', {
+    do1_mode: 'START DI1 / STOP DI2', do1_sp: 0,
+    do2_mode: 'OFF', do2_sp: 0,
+    do3_mode: 'OFF', do3_sp: 0,
+    do4_mode: 'ANY ALARM', do4_sp: 0,
+    ...modes,
+  }, 0);
+  b.w(PSU, 'P', S0, 'in');
+  b.w(S0, 'out', S2, 'in');
+  b.w(S2, 'out', PLC, 'DI2');
+  b.w(PSU, 'P', S1, 'in');
+  b.w(S1, 'out', PLC, 'DI1');
+  [B1, B2].forEach((s, i) => {
+    b.w(s, 'P', PSU, 'P');
+    b.w(s, 'M', PSU, 'M');
+    b.w(s, 'OUT', PLC, `DI${i + 3}`);
+  });
+  ai.forEach((s, i) => {
+    b.w(s, 'P', PSU, 'P');
+    b.w(s, 'M', PSU, 'M');
+    b.w(s, 'OUT', PLC, `AI${i + 1}`);
+  });
+  b.w(PLC, 'VP', PSU, 'P');
+  b.w(PLC, 'VM', PSU, 'M');
+  return PLC;
+}
+
+function lineNetwork(b: B, PSU: string, Q5: string, PLC: string, scadaLabel: string, extra: string[]) {
+  const ESW = b.add('eswitch', 880, 1260, 'SW-ETH-1', {}, 4);
+  const HMI = b.add('hmi', 880, 1420, 'HMI-1 LINE', {}, 1);
+  const SC = b.add('scada', 1200, 1260, scadaLabel, {}, 0);
+  for (const n of [ESW, HMI]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(SC, 'L', Q5, 'L2');
+  b.w(SC, 'N', Q5, 'N2');
+  b.w(PLC, 'ETH', ESW, 'E1');
+  b.w(ESW, 'E2', HMI, 'ETH');
+  b.w(ESW, 'E3', SC, 'ETH');
+  extra.forEach((id, i) => b.w(ESW, `E${i + 4}`, id, 'ETH'));
+}
+
+function kronesPet(): Design {
+  const b = new B();
+  const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
+  const MDB = b.add('mdb', 240, 20, 'MDB-PET 630A', { rating: 630 }, 2);
+  b.w(G, 'P3', MDB, 'IN');
+  b.w(G, 'L1', MDB, 'Lin');
+  b.w(G, 'N', MDB, 'N');
+  b.w(G, 'PE', MDB, 'PE');
+
+  const Q1 = b.add('mccb3', 520, 20, 'Q1 CONTIFORM 100A', { rating: 100 }, 2);
+  const EM = b.add('emeter', 720, 20, 'EM-LINE', {}, 1);
+  const U1 = b.add('vfd', 940, 10, 'U1 CONTIFORM DRIVE', { freq: 50, accel: 6 }, 1);
+  const M1 = b.add('motor3', 1170, 30, 'M1 CONTIFORM BLOW WHEEL', { kw: 15 }, 0);
+  b.w(MDB, 'F1', Q1, 'in');
+  b.w(Q1, 'out', EM, 'in');
+  b.w(EM, 'out', U1, 'in');
+  b.w(U1, 'out', M1, 'U');
+
+  const Q2 = b.add('mccb3', 520, 230, 'Q2 HP AIR 63A', { rating: 63 }, 2);
+  const AC = b.add('motor3', 720, 240, 'AC-1 HP COMPRESSOR 40bar', { kw: 22 }, 0);
+  b.w(MDB, 'F2', Q2, 'in');
+  b.w(Q2, 'out', AC, 'U');
+
+  const Q3 = b.add('mccb3', 520, 420, 'Q3 FILL-CAP 32A', { rating: 32 }, 2);
+  const U2 = b.add('vfd', 720, 410, 'U2 MODULFILL', { freq: 40, accel: 4 }, 1);
+  const M2 = b.add('motor3', 950, 430, 'M2 MODULFILL + CAPPER', { kw: 7.5 }, 0);
+  b.w(MDB, 'F3', Q3, 'in');
+  b.w(Q3, 'out', U2, 'in');
+  b.w(U2, 'out', M2, 'U');
+
+  const Q4 = b.add('mccb3', 520, 620, 'Q4 AUX 40A', { rating: 40 }, 2);
+  const BUS = b.add('bus3', 720, 620, 'BUS-1', {}, 2);
+  const KM1 = b.add('contactor', 860, 620, 'KM1 PRODUCT', {}, 1);
+  const KM2 = b.add('contactor', 1060, 620, 'KM2 LABELLER', {}, 1);
+  const KM3 = b.add('contactor', 1260, 620, 'KM3 PACKER', {}, 1);
+  const P1 = b.add('pump3', 870, 840, 'P-301 PRODUCT PUMP', { kw: 4 }, 0);
+  const M3 = b.add('motor3', 1070, 840, 'M3 CONTIROLL', { kw: 3 }, 0);
+  const M4 = b.add('motor3', 1270, 840, 'M4 VARIOPAC', { kw: 5.5 }, 0);
+  b.w(MDB, 'F4', Q4, 'in');
+  b.w(Q4, 'out', BUS, 'in');
+  [[KM1, P1], [KM2, M3], [KM3, M4]].forEach(([k, m], i) => {
+    b.w(BUS, `o${i + 1}`, k, 'in');
+    b.w(k, 'out', m, 'U');
+  });
+  for (const m of [M1, AC, M2, P1, M3, M4]) b.w(MDB, 'PE', m, 'PE');
+
+  const { PSU, LIC, TIC, Q5 } = lineControl(b, MDB, 3500, { label: 'TIC-101 PREFORM OVEN', sv: 105, hyst: 2 });
+  b.w(LIC, 'NO', KM1, 'A1');
+  b.w(KM1, 'A2', PSU, 'M');
+
+  const TT = b.add('temp_tx', 880, 1040, 'TT-101 OVEN', { hi: 120, lo: '' }, 3);
+  const PT = b.add('pressure_tx', 1080, 1040, 'PT-301 PRODUCT', { hi: 7.5, lo: '' }, 3);
+  const LT = b.add('level_tx', 1280, 1040, 'LT-301 FILLER BOWL', { hi: 4.6, lo: 0.5 }, 2);
+  const FT = b.add('flow_tx', 1480, 1040, 'FT-301 PRODUCT', { hi: '', lo: '' }, 2);
+  b.w(TT, 'OUT', TIC, 'IN');
+  b.w(LT, 'OUT', LIC, 'IN');
+
+  const PLC = linePlc(b, PSU, ['B1 PREFORM INFEED', 2], ['B2 CHECKMAT LOW-FILL', 6], [TT, PT, LT, FT], { do2_mode: 'DI4', do3_mode: 'AI1>SP', do3_sp: 115 });
+  b.w(PLC, 'DO1', U1, 'RUN');
+  b.w(PLC, 'DO1', U2, 'RUN');
+  for (const k of [KM2, KM3]) {
+    b.w(PLC, 'DO1', k, 'A1');
+    b.w(k, 'A2', PSU, 'M');
+  }
+
+  const TW = b.add('tower', 600, 1260, 'TW-1', {}, 0);
+  const Y1 = b.add('valve', 600, 1440, 'Y1 REJECTOR', {}, 0);
+  b.w(PLC, 'DO1', TW, 'G');
+  b.w(PLC, 'DO3', TW, 'Y');
+  b.w(PLC, 'DO4', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+  b.w(PLC, 'DO2', Y1, 'P');
+  b.w(Y1, 'M', PSU, 'M');
+
+  lineNetwork(b, PSU, Q5, PLC, 'LDS-1 LINE DOCUMENTATION', [EM, U1]);
+  return { name: 'โรงงาน: Krones PET · เป่าขวด-บรรจุ-ปิดฝา-ฉลาก-แพ็ค', comps: b.comps, wires: b.wires };
+}
+
+function beerBottle(): Design {
+  const b = new B();
+  const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
+  const MDB = b.add('mdb', 240, 20, 'MDB-BEER 800A', { rating: 800 }, 0);
+  b.w(G, 'P3', MDB, 'IN');
+  b.w(G, 'L1', MDB, 'Lin');
+  b.w(G, 'N', MDB, 'N');
+  b.w(G, 'PE', MDB, 'PE');
+
+  const Q1 = b.add('mccb3', 520, 20, 'Q1 WASHER 63A', { rating: 63 }, 0);
+  const EM = b.add('emeter', 720, 20, 'EM-LINE', {}, 0);
+  const U1 = b.add('vfd', 940, 10, 'U1 BOTTLE WASHER', { freq: 40, accel: 8 }, 3);
+  const M1 = b.add('motor3', 1170, 30, 'M1 WASHER MAIN DRIVE', { kw: 11 }, 2);
+  b.w(MDB, 'F1', Q1, 'in');
+  b.w(Q1, 'out', EM, 'in');
+  b.w(EM, 'out', U1, 'in');
+  b.w(U1, 'out', M1, 'U');
+
+  const Q2 = b.add('mccb3', 520, 230, 'Q2 FILLER 32A', { rating: 32 }, 0);
+  const U2 = b.add('vfd', 720, 220, 'U2 FILLER + CROWNER', { freq: 45, accel: 5 }, 3);
+  const M2 = b.add('motor3', 950, 240, 'M2 FILLER + CROWNER', { kw: 7.5 }, 2);
+  b.w(MDB, 'F2', Q2, 'in');
+  b.w(Q2, 'out', U2, 'in');
+  b.w(U2, 'out', M2, 'U');
+
+  const Q3 = b.add('mccb3', 520, 420, 'Q3 PASTEURISER 40A', { rating: 40 }, 0);
+  const BUS = b.add('bus3', 720, 420, 'BUS-1', {}, 0);
+  const KM1 = b.add('contactor', 860, 420, 'KM1 SPRAY', {}, 0);
+  const KM2 = b.add('contactor', 1060, 420, 'KM2 BEER FEED', {}, 0);
+  const KM3 = b.add('contactor', 1260, 420, 'KM3 LABELLER', {}, 0);
+  const P5 = b.add('pump3', 870, 640, 'P-501 SPRAY PUMP', { kw: 5.5, process: 'none' }, 1);
+  const P3 = b.add('pump3', 1070, 640, 'P-301 BEER FEED', { kw: 4 }, 0);
+  const M3 = b.add('motor3', 1270, 640, 'M3 LABELLER', { kw: 3 }, 2);
+  b.w(MDB, 'F3', Q3, 'in');
+  b.w(Q3, 'out', BUS, 'in');
+  [[KM1, P5], [KM2, P3], [KM3, M3]].forEach(([k, m], i) => {
+    b.w(BUS, `o${i + 1}`, k, 'in');
+    b.w(k, 'out', m, 'U');
+  });
+
+  const Q4 = b.add('mccb3', 520, 820, 'Q4 PACKER 20A', { rating: 20 }, 0);
+  const KM4 = b.add('contactor', 720, 800, 'KM4 CRATE PACKER', {}, 0);
+  const M4 = b.add('motor3', 940, 830, 'M4 CRATE PACKER', { kw: 4 }, 2);
+  b.w(MDB, 'F4', Q4, 'in');
+  b.w(Q4, 'out', KM4, 'in');
+  b.w(KM4, 'out', M4, 'U');
+  for (const m of [M1, M2, P5, P3, M3, M4]) b.w(MDB, 'PE', m, 'PE');
+
+  const { PSU, LIC, TIC, Q5 } = lineControl(b, MDB, 2000, { label: 'TIC-501 PASTEURISER Z3', sv: 62, hyst: 1 });
+  b.w(LIC, 'NO', KM2, 'A1');
+  b.w(KM2, 'A2', PSU, 'M');
+
+  const TT = b.add('temp_tx', 880, 1040, 'TT-501 PASTEURISER', { hi: 70, lo: '' }, 1);
+  const PT = b.add('pressure_tx', 1080, 1040, 'PT-301 CO₂ COUNTER-P', { hi: 7.5, lo: '' }, 1);
+  const LT = b.add('level_tx', 1280, 1040, 'LT-301 FILLER BOWL', { hi: 4.6, lo: 0.5 }, 1);
+  const AT = b.add('gas_tx', 1480, 1040, 'AT-401 CO₂ ROOM', { mode: 'process' }, 2);
+  b.w(TT, 'OUT', TIC, 'IN');
+  b.w(LT, 'OUT', LIC, 'IN');
+
+  const PLC = linePlc(b, PSU, ['B1 EBI EMPTY BOTTLE', 5], ['B2 FILL LEVEL INSPECT', 7], [TT, PT, LT, AT], { do2_mode: 'DI3', do3_mode: 'DI4' });
+  b.w(PLC, 'DO1', U1, 'RUN');
+  b.w(PLC, 'DO1', U2, 'RUN');
+  for (const k of [KM1, KM3, KM4]) {
+    b.w(PLC, 'DO1', k, 'A1');
+    b.w(k, 'A2', PSU, 'M');
+  }
+
+  const TW = b.add('tower', 600, 1260, 'TW-1', {}, 1);
+  const Y1 = b.add('valve', 600, 1440, 'Y1 EBI REJECT', {}, 1);
+  const Y2 = b.add('valve', 600, 1580, 'Y2 FILL REJECT', {}, 1);
+  b.w(PLC, 'DO1', TW, 'G');
+  b.w(PLC, 'DO4', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+  b.w(PLC, 'DO2', Y1, 'P');
+  b.w(PLC, 'DO3', Y2, 'P');
+  b.w(Y1, 'M', PSU, 'M');
+  b.w(Y2, 'M', PSU, 'M');
+
+  lineNetwork(b, PSU, Q5, PLC, 'MES-1 LINE MONITOR', [EM, U1, U2]);
+  return { name: 'โรงงาน: Beer bottle · ล้างขวด-บรรจุ-ปิดจีบ-พาสเจอร์ไรส์', comps: b.comps, wires: b.wires };
+}
+
 function pumpStation(): Design {
   const b = new B();
   const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
@@ -739,6 +976,8 @@ export const TEMPLATES: Template[] = [
   { id: 'blank', name: 'Empty plan', desc: 'แปลนว่าง', group: 'simple', build: () => ({ name: 'Empty plan', comps: [], wires: [] }) },
   { id: 'plant', name: 'ไฟโรงงาน · Switchgear → TR → MDB', desc: '22kV ผ่านสวิตช์เกียร์และหม้อแปลง เข้าตู้เมน แล้วแยกไปมอเตอร์กับวงจร 24V', group: 'plant', build: plantPower },
   { id: 'mdbmon', name: 'Monitor MDB · Power meter → Modbus → SCADA', desc: 'มิเตอร์เมนหลังหม้อแปลง + มิเตอร์ย่อย 2 ฟีดเดอร์ ต่อ RS485 แบบพ่วงเข้า Gateway → Ethernet → SCADA และ 4G → Cloud พร้อมสถานะคอนแทคเตอร์เข้า PLC', group: 'plant', build: mdbMonitoring },
+  { id: 'pet', name: 'Krones PET filling line · Blow-Fill-Cap-Label-Pack', desc: 'ไลน์น้ำดื่ม PET: Contiform เป่าขวด (อบพรีฟอร์มคุม 105°C) + คอมเพรสเซอร์ 40 bar → Modulfill บรรจุ+ปิดฝา คุมระดับถังบรรจุ → Checkmat คัดขวดน้ำขาด → Contiroll ฉลาก → Variopac แพ็ค', group: 'plant', build: kronesPet },
+  { id: 'beer', name: 'Beer bottle filling line · Washer-Fill-Crown-Pasteurise', desc: 'ไลน์เบียร์ขวดแก้ว: เครื่องล้างขวด → EBI ตรวจขวดเปล่า → Filler แรงดัน CO₂ + Crowner ปิดฝาจีบ คุมระดับถัง → Tunnel pasteuriser คุม 62°C → ฉลาก → แพ็คลังขวด + ตรวจ CO₂ ในห้อง', group: 'plant', build: beerBottle },
   { id: 'pumpstation', name: 'ห้องปั๊มน้ำ · คุมระดับถังอัตโนมัติ', desc: 'ลูกลอยระดับต่ำ/สูงผ่านรีเลย์เข้า PLC สั่งปั๊มเดิน-หยุดเอง พร้อม LT, PT, ทาวเวอร์ไลท์ และ HMI', group: 'plant', build: pumpStation },
   { id: 'compressor', name: 'ห้องคอมเพรสเซอร์ลม · VFD + Energy meter', desc: 'MDB แยก feeder คอมเพรสเซอร์ 22kW ผ่านมิเตอร์และ VFD กับเครื่องทำลมแห้ง วัดแรงดันลมและการสั่น', group: 'plant', build: compressorRoom },
   { id: 'conveyor', name: 'ไลน์สายพาน · คัดแยกชิ้นงาน', desc: 'Start/Stop + E-Stop สั่งสายพาน เซนเซอร์นับชิ้นงานและโซลินอยด์คัดชิ้นงานโลหะ', group: 'plant', build: conveyorLine },
