@@ -11,6 +11,7 @@ import { forceTrip, newSim, repair, resetTrip, setPressed, SimState, step } from
 import { CheckDialog } from './CheckDialog';
 import { checkWiring, Issue, wireIssue } from './check';
 import type { CtlAction } from './CompView';
+import { isUnlocked, LOCKED_GROUPS, verifyLogin } from './auth';
 
 const LS_KEY = 'wirelab.design.v1';
 
@@ -56,6 +57,8 @@ export default function App() {
   const [drawingOpen, setDrawingOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
   const [critCount, setCritCount] = useState(0);
+  const [unlocked, setUnlocked] = useState(isUnlocked);
+  const [login, setLogin] = useState<{ user: string; pw: string; err: string; busy: boolean } | null>(null);
   const simRef = useRef<SimState | null>(null);
   const burnt = useRef(new Set<string>());
   const hist = useRef<Record<string, number[]>>({});
@@ -462,10 +465,36 @@ export default function App() {
   const simple = TEMPLATES.filter((t) => t.group === 'simple');
   const plant = TEMPLATES.filter((t) => t.group === 'plant');
   const full = TEMPLATES.filter((t) => t.group === 'full');
+  const isLocked = (id: string) => !unlocked && LOCKED_GROUPS.includes(TEMPLATES.find((x) => x.id === id)?.group ?? '');
+  const presetLocked = isLocked(preset);
   const loadPreset = () => {
     const t = TEMPLATES.find((x) => x.id === preset);
-    if (t) loadDesign(t.build());
+    if (!t) return;
+    if (presetLocked) {
+      setLogin({ user: '', pw: '', err: '', busy: false });
+      return;
+    }
+    loadDesign(t.build());
   };
+  const submitLogin = async () => {
+    if (!login || login.busy) return;
+    setLogin({ ...login, busy: true, err: '' });
+    const ok = await verifyLogin(login.user, login.pw);
+    if (!ok) {
+      setLogin({ ...login, busy: false, err: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+      return;
+    }
+    setUnlocked(true);
+    setLogin(null);
+    const t = TEMPLATES.find((x) => x.id === preset);
+    if (t) loadDesign(t.build());
+    showToast('🔓 ปลดล็อก template งานโรงงานและระบบเต็มแล้ว');
+  };
+  const presetOption = (t: (typeof TEMPLATES)[number]) => (
+    <option key={t.id} value={t.id} className={isLocked(t.id) ? 'opt-locked' : undefined}>
+      {isLocked(t.id) ? `🔒 ${t.name}` : t.name}
+    </option>
+  );
 
   return (
     <div className="app">
@@ -494,24 +523,14 @@ export default function App() {
               <option value="panel">Panel plan</option>
               <option value="schematic">Symbols</option>
             </select>
-            <select className="input preset" value={preset} onChange={(e) => setPreset(e.target.value)} title="วงจรตัวอย่าง">
-              <optgroup label="วงจรง่าย">
-                {simple.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </optgroup>
-              <optgroup label="งานโรงงาน">
-                {plant.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </optgroup>
-              <optgroup label="ระบบเต็ม">
-                {full.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </optgroup>
+            <select className={`input preset ${presetLocked ? 'locked' : ''}`} value={preset} onChange={(e) => setPreset(e.target.value)} title="วงจรตัวอย่าง">
+              <optgroup label="วงจรง่าย">{simple.map(presetOption)}</optgroup>
+              <optgroup label={unlocked ? 'งานโรงงาน' : 'งานโรงงาน 🔒'}>{plant.map(presetOption)}</optgroup>
+              <optgroup label={unlocked ? 'ระบบเต็ม' : 'ระบบเต็ม 🔒'}>{full.map(presetOption)}</optgroup>
             </select>
-            <button className="btn" onClick={loadPreset}>โหลด</button>
+            <button className={`btn ${presetLocked ? 'locked' : ''}`} onClick={loadPreset} title={presetLocked ? 'ต้องเข้าสู่ระบบก่อนโหลด template นี้' : 'โหลดวงจรตัวอย่าง'}>
+              {presetLocked ? '🔒 โหลด' : 'โหลด'}
+            </button>
             <button className="btn" title="Undo (Ctrl+Z)" onClick={undo}>↶</button>
             <button className="btn" title="Redo (Ctrl+Y)" onClick={redo}>↷</button>
             <button className="btn" title="ลบที่เลือก" onClick={deleteSel} disabled={!sel.wire && !sel.comps.length}>ลบ</button>
@@ -603,6 +622,34 @@ export default function App() {
             <p>จำลองไฟ DC/AC, เบรกเกอร์, รีเลย์, เซนเซอร์ 4-20mA และเครือข่ายไปจนถึง HMI ไม่ได้แทนการคำนวณทางไฟฟ้าแบบละเอียดหรืออุปกรณ์จริง</p>
             <button className="btn run" onClick={() => setHelp(false)}>เริ่มทดลอง</button>
           </div>
+        </div>
+      )}
+      {login && (
+        <div className="help-dialog" onClick={() => !login.busy && setLogin(null)}>
+          <form
+            className="help-card login-card"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitLogin();
+            }}
+          >
+            <h2>🔒 Template นี้ถูกล็อก</h2>
+            <p className="muted">template งานโรงงานและระบบเต็ม ต้องเข้าสู่ระบบก่อนโหลด</p>
+            <label className="field">
+              <span>User</span>
+              <input className="input" autoFocus autoComplete="username" value={login.user} onChange={(e) => setLogin({ ...login, user: e.target.value, err: '' })} />
+            </label>
+            <label className="field">
+              <span>Password</span>
+              <input className="input" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin({ ...login, pw: e.target.value, err: '' })} />
+            </label>
+            {login.err && <p className="login-err">{login.err}</p>}
+            <div className="btns">
+              <button type="button" className="btn" disabled={login.busy} onClick={() => setLogin(null)}>ยกเลิก</button>
+              <button type="submit" className="btn run" disabled={login.busy || !login.user || !login.pw}>{login.busy ? 'กำลังตรวจสอบ…' : 'เข้าสู่ระบบและโหลด'}</button>
+            </div>
+          </form>
         </div>
       )}
       {toast && <div className="toast">{toast}</div>}

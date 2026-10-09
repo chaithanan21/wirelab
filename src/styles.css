@@ -124,6 +124,13 @@ button { font-family: inherit; }
 .help-card h2 { margin: 0 0 8px; }
 .help-card ol { line-height: 1.75; color: #dce9f6; padding-left: 20px; }
 .help-card p { color: #93a7bc; line-height: 1.6; }
+.login-card { width: min(380px, 92vw); }
+.login-card .btns { justify-content: flex-end; margin-top: 12px; }
+.login-err { color: #fca5a5 !important; font-size: 12.5px; margin: 2px 0 0; }
+.opt-locked { color: #6b7280; }
+.input.preset.locked { color: #8a94a3; }
+.btn.locked { background: #222a36; border-color: #3a4352; color: #8a94a3; }
+.btn.locked:hover:not(:disabled) { background: #283140; border-color: #4a5566; }
 .canvas.symbol { background: #f8fafc; }
 .canvas.panning { cursor: grabbing; }
 .canvas text { pointer-events: none; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; }
