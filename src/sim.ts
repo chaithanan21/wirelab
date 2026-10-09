@@ -911,9 +911,10 @@ function computeCurrents(d: Design, s: SimState, dt: number): boolean {
     const df = DEF_MAP[c.type];
     if (!df || !['grid1', 'grid3', 'gridmv', 'gen', 'battery', 'tr'].includes(df.beh)) continue;
     const r = R(s, c.id);
-    const w = (bySrc.get(c.id) ?? []).reduce((a, x) => a + (R(s, x.id).powerW ?? 0), 0);
+    const fed = (bySrc.get(c.id) ?? []).filter((x) => !PROTECT.includes(DEF_MAP[x.type]?.beh));
+    const w = fed.reduce((a, x) => a + (R(s, x.id).powerW ?? 0), 0);
     r.powerW = w;
-    r.current = (bySrc.get(c.id) ?? []).reduce((a, x) => a + (R(s, x.id).current ?? 0), 0);
+    r.current = fed.reduce((a, x) => a + (R(s, x.id).current ?? 0), 0);
     if (df.beh !== 'battery') {
       total += r.current;
       totalW += w;

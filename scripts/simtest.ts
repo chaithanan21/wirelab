@@ -219,6 +219,34 @@ for (const id of ['field', 'relay', 'analog', 'led', 'process', 'timer']) {
 }
 
 {
+  const d = TEMPLATES.find((t) => t.id === 'mdbmon')!.build();
+  const s = run(d, 3);
+  const r = (l: string) => s.rt[byLabel(d, l).id];
+  const kw = (l: string) => (r(l).powerW ?? 0) / 1000;
+  check('mdbmon: chiller feeder running', !!r('CH-1 CHILLER').powered);
+  check('mdbmon: M1 idle before start', !r('M1 PRODUCTION').powered);
+  check('mdbmon: EM-F2 reads chiller', kw('EM-F2') > 8, `${kw('EM-F2').toFixed(1)}kW`);
+  check('mdbmon: EM-F1 zero while stopped', kw('EM-F1') < 0.5, `${kw('EM-F1').toFixed(1)}kW`);
+  const sc = s.displays[byLabel(d, 'SCADA-1 ENERGY').id];
+  check('mdbmon: SCADA sees all 3 meters', sc?.status === 'ok' && ['EM-MAIN', 'EM-F1', 'EM-F2'].every((m) => sc.via.includes(m)), sc?.via.join(','));
+  check('mdbmon: cloud online', s.displays[byLabel(d, 'CLOUD ENERGY').id]?.status === 'ok');
+  setPressed(s, byLabel(d, 'S1 START M1').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S1 START M1').id, false);
+  run(d, 3, s);
+  check('mdbmon: M1 runs after START', !!r('M1 PRODUCTION').powered);
+  check('mdbmon: EM-F1 reads M1', kw('EM-F1') > 10, `${kw('EM-F1').toFixed(1)}kW`);
+  check('mdbmon: main meter = sum of feeders', kw('EM-MAIN') >= kw('EM-F1') + kw('EM-F2') - 0.5, `${kw('EM-MAIN').toFixed(1)}kW`);
+  check('mdbmon: KM1 feedback at PLC DI3', !!r('PLC-1').di?.[2]);
+  check('mdbmon: green lamp = running', !!r('PLC-1').dos?.[1] && !r('PLC-1').dos?.[2]);
+  setPressed(s, byLabel(d, 'S2 STOP M1').id, true);
+  run(d, 0.4, s);
+  setPressed(s, byLabel(d, 'S2 STOP M1').id, false);
+  run(d, 2, s);
+  check('mdbmon: M1 stops, feedback clears', !r('M1 PRODUCTION').powered && !r('PLC-1').di?.[2]);
+}
+
+{
   const d = TEMPLATES.find((t) => t.id === 'conveyor')!.build();
   const s = run(d, 2);
   const r = (l: string) => s.rt[byLabel(d, l).id];

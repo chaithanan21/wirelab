@@ -432,6 +432,93 @@ function plantPower(): Design {
   return { name: 'โรงงาน: Switchgear → TR → MDB', comps: b.comps, wires: b.wires };
 }
 
+function mdbMonitoring(): Design {
+  const b = new B();
+  const G = b.add('grid22', 20, 50, 'PEA 22kV');
+  const SWG = b.add('swg', 200, 40, 'SWG1');
+  const TR = b.add('tr', 420, 20, 'TR1', { kva: 1000 });
+  const EM0 = b.add('emeter', 680, 40, 'EM-MAIN', {}, 0);
+  const MDB = b.add('mdb', 900, 20, 'MDB1 1600A', { f3: false, f4: false }, 0);
+  b.w(G, 'MV', SWG, 'IN');
+  b.w(SWG, 'OUT', TR, 'HV');
+  b.w(TR, 'LV', EM0, 'in');
+  b.w(EM0, 'out', MDB, 'IN');
+  b.w(TR, 'L', MDB, 'Lin');
+  b.w(TR, 'N', MDB, 'N');
+  b.w(TR, 'PE', MDB, 'PE');
+
+  const Q1 = b.add('mccb3', 1200, 20, 'Q1 PRODUCTION 63A', { rating: 63 }, 0);
+  const EM1 = b.add('emeter', 1420, 20, 'EM-F1', {}, 1);
+  const KM = b.add('contactor', 1660, 10, 'KM1', {}, 0);
+  const M1 = b.add('motor3', 1900, 30, 'M1 PRODUCTION', { kw: 15 }, 0);
+  b.w(MDB, 'F1', Q1, 'in');
+  b.w(Q1, 'out', EM1, 'in');
+  b.w(EM1, 'out', KM, 'in');
+  b.w(KM, 'out', M1, 'U');
+  b.w(MDB, 'PE', M1, 'PE');
+
+  const Q2 = b.add('mccb3', 1200, 240, 'Q2 CHILLER 32A', { rating: 32 }, 1);
+  const EM2 = b.add('emeter', 1420, 240, 'EM-F2', {}, 4);
+  const CH = b.add('motor3', 1660, 250, 'CH-1 CHILLER', { kw: 11 }, 2);
+  b.w(MDB, 'F2', Q2, 'in');
+  b.w(Q2, 'out', EM2, 'in');
+  b.w(EM2, 'out', CH, 'U');
+  b.w(MDB, 'PE', CH, 'PE');
+
+  const Q4 = b.add('mcb2', 900, 260, 'Q4 CTRL 6A', { rating: 6 }, 0);
+  const PSU = b.add('psu24', 900, 420, 'PSU-1', {}, 1);
+  b.w(MDB, 'L', Q4, 'L1');
+  b.w(MDB, 'N', Q4, 'N1');
+  b.w(Q4, 'L2', PSU, 'L');
+  b.w(Q4, 'N2', PSU, 'N');
+
+  const GW = b.add('gateway', 680, 240, 'GW-1 MODBUS', {}, 0);
+  b.w(GW, '485', EM0, '485');
+  b.w(EM0, '485', EM1, '485');
+  b.w(EM1, '485', EM2, '485');
+
+  const ESW = b.add('eswitch', 640, 440, 'SW-ETH-1', {}, 0);
+  const SC = b.add('scada', 1200, 440, 'SCADA-1 ENERGY', {}, 2);
+  const RT = b.add('router', 1520, 460, 'RT-1 4G', {}, 0);
+  b.add('cloud', 1760, 450, 'CLOUD ENERGY', {}, 4);
+  b.w(Q4, 'L2', SC, 'L');
+  b.w(Q4, 'N2', SC, 'N');
+  for (const n of [GW, ESW, RT]) {
+    b.w(n, 'VP', PSU, 'P');
+    b.w(n, 'VM', PSU, 'M');
+  }
+  b.w(GW, 'ETH', ESW, 'E1');
+  b.w(ESW, 'E2', SC, 'ETH');
+  b.w(ESW, 'E4', RT, 'E1');
+
+  const S1 = b.add('pb_no', 40, 440, 'S1 START M1', {}, 0);
+  const S2 = b.add('pb_nc', 40, 580, 'S2 STOP M1', {}, 0);
+  const PLC = b.add('plc', 300, 440, 'PLC-1', {
+    do1_mode: 'START DI1 / STOP DI2', do1_sp: 0,
+    do2_mode: 'DI3', do2_sp: 0,
+    do3_mode: 'NOT DI3', do3_sp: 0,
+    do4_mode: 'ANY ALARM', do4_sp: 0,
+  }, 0);
+  b.w(S1, 'in', PSU, 'P');
+  b.w(S1, 'out', PLC, 'DI1');
+  b.w(S2, 'in', PSU, 'P');
+  b.w(S2, 'out', PLC, 'DI2');
+  b.w(PLC, 'VP', PSU, 'P');
+  b.w(PLC, 'VM', PSU, 'M');
+  b.w(PLC, 'DO1', KM, 'A1');
+  b.w(KM, 'A2', PSU, 'M');
+  b.w(PSU, 'P', KM, 'a13');
+  b.w(KM, 'a14', PLC, 'DI3');
+  b.w(PLC, 'ETH', ESW, 'E3');
+
+  const TW = b.add('tower', 320, 720, 'TW-1', {}, 0);
+  b.w(PLC, 'DO2', TW, 'G');
+  b.w(PLC, 'DO3', TW, 'Y');
+  b.w(PLC, 'DO4', TW, 'R');
+  b.w(TW, 'M', PSU, 'M');
+  return { name: 'โรงงาน: Monitor MDB · Power meter → Modbus → SCADA', comps: b.comps, wires: b.wires };
+}
+
 function pumpStation(): Design {
   const b = new B();
   const G = b.add('grid3', 40, 40, 'PEA 3φ 400V');
@@ -651,6 +738,7 @@ export const TEMPLATES: Template[] = [
   { id: 'timer', name: 'Timer relay · Schneider', desc: 'หน่วงเวลาก่อนติดไฟแสดงสถานะ', group: 'simple', build: timerSchneider },
   { id: 'blank', name: 'Empty plan', desc: 'แปลนว่าง', group: 'simple', build: () => ({ name: 'Empty plan', comps: [], wires: [] }) },
   { id: 'plant', name: 'ไฟโรงงาน · Switchgear → TR → MDB', desc: '22kV ผ่านสวิตช์เกียร์และหม้อแปลง เข้าตู้เมน แล้วแยกไปมอเตอร์กับวงจร 24V', group: 'plant', build: plantPower },
+  { id: 'mdbmon', name: 'Monitor MDB · Power meter → Modbus → SCADA', desc: 'มิเตอร์เมนหลังหม้อแปลง + มิเตอร์ย่อย 2 ฟีดเดอร์ ต่อ RS485 แบบพ่วงเข้า Gateway → Ethernet → SCADA และ 4G → Cloud พร้อมสถานะคอนแทคเตอร์เข้า PLC', group: 'plant', build: mdbMonitoring },
   { id: 'pumpstation', name: 'ห้องปั๊มน้ำ · คุมระดับถังอัตโนมัติ', desc: 'ลูกลอยระดับต่ำ/สูงผ่านรีเลย์เข้า PLC สั่งปั๊มเดิน-หยุดเอง พร้อม LT, PT, ทาวเวอร์ไลท์ และ HMI', group: 'plant', build: pumpStation },
   { id: 'compressor', name: 'ห้องคอมเพรสเซอร์ลม · VFD + Energy meter', desc: 'MDB แยก feeder คอมเพรสเซอร์ 22kW ผ่านมิเตอร์และ VFD กับเครื่องทำลมแห้ง วัดแรงดันลมและการสั่น', group: 'plant', build: compressorRoom },
   { id: 'conveyor', name: 'ไลน์สายพาน · คัดแยกชิ้นงาน', desc: 'Start/Stop + E-Stop สั่งสายพาน เซนเซอร์นับชิ้นงานและโซลินอยด์คัดชิ้นงานโลหะ', group: 'plant', build: conveyorLine },
