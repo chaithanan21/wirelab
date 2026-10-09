@@ -88,6 +88,13 @@ button { font-family: inherit; }
 .lib-h { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: #8eabc7; margin: 2px 0 4px; }
 .note { font-size: 12px; color: #879cb3; line-height: 1.5; }
 .group-label { margin: 14px 4px 6px; font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; color: #7894b0; }
+.group-toggle { display: flex; align-items: center; gap: 6px; width: calc(100% - 8px); background: var(--panel); border: 0; border-radius: 6px; padding: 6px 4px; margin: 8px 4px 2px; cursor: pointer; font-family: inherit; text-align: left; position: sticky; top: 0; z-index: 1; }
+.group-toggle:hover { color: #b9d3ea; background: #1d2735; }
+.group-toggle .chev { display: inline-block; width: 10px; transition: transform .15s; }
+.group-toggle.shut .chev { transform: rotate(-90deg); }
+.group-toggle .group-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-toggle .count { background: #1e293b; border-radius: 8px; padding: 0 7px; font-size: 10px; letter-spacing: 0; color: var(--muted); }
+.pal-fold { display: flex; gap: 6px; }
 .pal-list { overflow-y: auto; flex: 1; padding: 4px 6px 20px; }
 .pal-cat { margin-bottom: 2px; }
 .pal-cat-h { display: flex; align-items: center; gap: 6px; width: 100%; background: transparent; border: 0; color: var(--text);

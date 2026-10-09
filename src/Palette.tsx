@@ -3,6 +3,8 @@ import { ALL_BRANDS, BRAND_COLORS, CATEGORIES, DEFS } from './library';
 import { Icon } from './icons';
 import { WiringAdvice } from './WiringAdvice';
 
+const CLOSED_KEY = 'wirelab.palette.closed';
+
 interface Props {
   brand: string;
   setBrand: (b: string) => void;
@@ -13,6 +15,19 @@ export function Palette({ brand, setBrand, onAdd }: Props) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [open, setOpen] = useState('');
+  const [closed, setClosed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(CLOSED_KEY) ?? '[]');
+    } catch {
+      return [];
+    }
+  });
+  const saveClosed = (next: string[]) => {
+    setClosed(next);
+    localStorage.setItem(CLOSED_KEY, JSON.stringify(next));
+  };
+  const toggleGroup = (id: string) => saveClosed(closed.includes(id) ? closed.filter((x) => x !== id) : [...closed, id]);
+  const searching = q.trim() !== '';
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -51,15 +66,28 @@ export function Palette({ brand, setBrand, onAdd }: Props) {
           ))}
         </select>
         <div className="note">{list.length} รายการ · {models} รุ่น · {ALL_BRANDS.length} แบรนด์</div>
+        {!cat && (
+          <div className="pal-fold">
+            <button type="button" className="btn tiny" onClick={() => saveClosed([])}>เปิดทั้งหมด</button>
+            <button type="button" className="btn tiny" onClick={() => saveClosed(CATEGORIES.map((c) => c.id))}>ย่อทั้งหมด</button>
+          </div>
+        )}
       </div>
       <div className="pal-list">
         {CATEGORIES.map((group) => {
           const items = list.filter((d) => d.category === group.id);
           if (!items.length) return null;
+          const shut = !cat && !searching && closed.includes(group.id);
           return (
             <div key={group.id} className="pal-cat">
-              {!cat && <div className="group-label">{group.en}</div>}
-              {items.map((d) => {
+              {!cat && (
+                <button type="button" className={`group-label group-toggle ${shut ? 'shut' : ''}`} onClick={() => toggleGroup(group.id)} aria-expanded={!shut}>
+                  <span className="chev">▾</span>
+                  <span className="group-name">{group.en}</span>
+                  <span className="count">{items.length}</span>
+                </button>
+              )}
+              {!shut && items.map((d) => {
                   const br = (brand && d.brands.find((b) => b.brand === brand)) || d.brands[0];
                   return (
                     <div key={d.type} className="pal-card">
