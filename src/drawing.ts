@@ -1,12 +1,14 @@
-import type { Comp, Design } from './types';
+import type { Comp, Design, PortDef } from './types';
 import { COMM_KINDS, DEF_MAP } from './library';
 import { portAbs, route } from './Canvas';
+import { iecSymbol, letterCode, NAMES, symbolKey, WIRE_STYLES, type WireStyle } from './iec';
 
 export interface DrawingOptions {
   title: string;
   number: string;
   revision: string;
   layout: 'plan' | 'grid';
+  colors: boolean;
   date: string;
 }
 
@@ -33,51 +35,10 @@ export interface DrawingDoc {
   devices: DeviceRow[];
 }
 
-const PREFIX: Record<string, string> = {
-  grid1: 'G', grid3: 'G', gridmv: 'MV', gen: 'GEN', battery: 'BAT', psu: 'PS', ups: 'UPS', ats: 'ATS',
-  swg: 'SWG', tr: 'TR', mdb: 'MDB',
-  breaker: 'Q', rcbo: 'Q', fuse: 'FU', passive: 'SPD',
-  switch: 'S', pb: 'S', estop: 'S', selector: 'S',
-  relay: 'K', contactor: 'K', overload: 'F', timer: 'KT', tempctl: 'TC', vfd: 'U',
-  sensor_a: 'BT', sensor_d: 'B', contact_sw: 'B', sensor_485: 'BT', sensor_lora: 'BT', emeter: 'EM',
-  plc: 'PLC', rio: 'IO', edge: 'EC',
-  eswitch: 'SW', router: 'RT', gateway: 'GW', lora_gw: 'LG',
-  load_ac: 'H', motor3: 'M', load_dc: 'H', tower: 'TL',
-  hmi: 'HMI', scada: 'PC', monitor: 'MON', pmeter: 'PI', led: 'AN', cloud: 'CL', tb: 'TB',
-};
-
-const SYMBOL: Record<string, string> = {
-  psu: '<rect x="10" y="10" width="44" height="44"/><path d="M20 24h8m-4-4v8m10 10h12M10 32h44"/>',
-  grid1: '<circle cx="32" cy="32" r="18"/><path d="M18 32c3-6 5-6 8 0s5 6 8 0"/>',
-  grid3: '<circle cx="32" cy="32" r="18"/><path d="M18 36c3-6 5-6 8 0s5 6 8 0"/><text x="32" y="28" text-anchor="middle" font-size="12" stroke="none" fill="#243f54">3</text>',
-  gridmv: '<circle cx="32" cy="32" r="18"/><text x="32" y="36" text-anchor="middle" font-size="11" stroke="none" fill="#243f54">22</text>',
-  swg: '<rect x="14" y="8" width="36" height="48"/><path d="M22 40h6m12 0h6M28 38l10-12"/>',
-  tr: '<circle cx="24" cy="32" r="12"/><circle cx="40" cy="32" r="12"/>',
-  mdb: '<rect x="10" y="14" width="44" height="36"/><path d="M16 22h32M22 22v20M32 22v20M42 22v20"/>',
-  sensor_a: '<circle cx="32" cy="30" r="18"/><path d="M16 32q8-14 16 0t16 0"/>',
-  sensor_d: '<rect x="14" y="16" width="28" height="30" rx="3"/><path d="M18 26h16M18 34h10"/>',
-  plc: '<rect x="12" y="12" width="40" height="40" rx="2"/><path d="M20 22h8v18h-8M36 22h8M36 30h8M36 38h8"/>',
-  eswitch: '<rect x="10" y="22" width="44" height="20" rx="2"/><path d="M18 28v8m10-8v8m10-8v8"/>',
-  hmi: '<rect x="8" y="12" width="48" height="32" rx="2"/><path d="M16 34l8-10 8 7 12-12M22 44v8m20-8v8"/>',
-  load_dc: '<circle cx="32" cy="32" r="16"/><path d="M22 22l20 20M22 42l20-20"/>',
-  load_ac: '<circle cx="32" cy="30" r="16"/><path d="M22 20l20 20M22 40l20-20"/>',
-  motor3: '<circle cx="32" cy="32" r="18"/><path d="M24 42V22l8 12 8-12v20"/>',
-  relay: '<rect x="20" y="12" width="24" height="36"/><path d="M32 6v6m0 36v8M20 48l24-32"/>',
-  contactor: '<rect x="18" y="14" width="28" height="36"/><path d="M32 8v6M18 46l28-28"/>',
-  breaker: '<path d="M10 42h12m20 0h12M24 40l16-16"/><circle cx="22" cy="42" r="2.5"/><circle cx="44" cy="42" r="2.5"/>',
-  switch: '<path d="M8 42h12m22 0h14M22 40l20-16"/><circle cx="20" cy="42" r="2.5"/><circle cx="42" cy="42" r="2.5"/>',
-  timer: '<circle cx="32" cy="34" r="16"/><path d="M32 24v10l8 5M22 10h20"/>',
-  vfd: '<rect x="10" y="10" width="44" height="44"/><path d="M10 54L54 10M16 24c3-5 5-5 8 0s5 5 8 0"/>',
-};
+const INK = '#1b2c3b';
 
 function xml(s: string) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]!));
-}
-
-function refFor(c: Comp, index: number) {
-  const beh = DEF_MAP[c.type]?.beh ?? '';
-  const prefix = PREFIX[beh] ?? 'D';
-  return `${prefix}${String(index + 1).padStart(2, '0')}`;
 }
 
 function specLine(c: Comp) {
@@ -85,26 +46,40 @@ function specLine(c: Comp) {
   if (!df) return '';
   if (df.beh === 'psu') return `${c.props.voltage ?? 24} V DC`;
   if (df.beh === 'grid1') return '230 V 50 Hz';
-  if (df.beh === 'grid3') return '400 V 3~';
+  if (df.beh === 'grid3') return '400 V 3~ 50 Hz';
   if (df.beh === 'gridmv') return `${c.props.kv ?? 22} kV`;
   if (df.beh === 'swg') return `${c.props.kv ?? 22} kV  ${c.props.rating ?? ''} A`;
   if (df.beh === 'tr') return `${c.props.pri ?? 22}/${c.props.sec ?? 400}V  ${c.props.kva ?? ''} kVA`;
   if (df.beh === 'mdb') return `${c.props.rating ?? ''} A`;
   if (df.beh === 'sensor_a') return `${c.props.min}–${c.props.max} ${c.props.unit ?? ''}`;
-  if (df.beh === 'plc') return 'PLC';
-  if (df.beh === 'eswitch' || df.beh === 'router' || df.beh === 'gateway') return 'NET';
-  if (df.beh === 'hmi' || df.beh === 'scada' || df.beh === 'monitor') return 'HMI';
-  if (df.beh === 'load_dc' || (df.beh === 'load_ac' && df.icon === 'lamp')) return 'LAMP';
   if (df.beh === 'motor3') return `${c.props.kw ?? ''} kW`;
   if (df.beh === 'timer') return `TON ${c.props.delay ?? 0} s`;
-  if (df.beh === 'breaker' || df.beh === 'rcbo' || df.beh === 'fuse') return `${c.props.rating ?? ''} A`;
-  return df.short;
+  if (df.beh === 'vfd') return `${c.props.freq ?? 50} Hz`;
+  if (df.beh === 'breaker' || df.beh === 'rcbo' || df.beh === 'fuse') return `In ${c.props.rating ?? ''} A`;
+  if (df.beh === 'overload') return `Ir ${c.props.setting ?? c.props.rating ?? ''} A`;
+  return '';
 }
 
-function isNet(design: Design, a: { c: string; p: string }) {
+function portOf(design: Design, a: { c: string; p: string }): PortDef | undefined {
   const comp = design.comps.find((c) => c.id === a.c);
-  const kind = comp ? DEF_MAP[comp.type]?.ports.find((p) => p.id === a.p)?.kind : undefined;
-  return !!kind && COMM_KINDS.includes(kind);
+  return comp ? DEF_MAP[comp.type]?.ports.find((p) => p.id === a.p) : undefined;
+}
+
+const RANK = ['PE', 'N', 'MV', 'P3', 'L', 'DC+', 'DC-', 'AI', 'X'];
+
+function wireStyle(pa?: PortDef, pb?: PortDef): WireStyle {
+  if ((pa && COMM_KINDS.includes(pa.kind)) || (pb && COMM_KINDS.includes(pb.kind))) return WIRE_STYLES.NET;
+  const ports = [pa, pb].filter(Boolean) as PortDef[];
+  ports.sort((x, y) => RANK.indexOf(x.kind) - RANK.indexOf(y.kind));
+  const p = ports[0];
+  if (!p) return WIRE_STYLES.DC;
+  if (p.kind === 'PE' || p.kind === 'N' || p.kind === 'MV' || p.kind === 'P3') return WIRE_STYLES[p.kind];
+  if (p.kind === 'L') {
+    const lbl = ports.map((q) => q.label).join(' ');
+    return /L2\b/.test(lbl) ? WIRE_STYLES.L2 : /L3\b/.test(lbl) ? WIRE_STYLES.L3 : WIRE_STYLES.L;
+  }
+  if (p.kind === 'AI') return WIRE_STYLES.SIG;
+  return WIRE_STYLES.DC;
 }
 
 function arrange(design: Design, layout: DrawingOptions['layout']): Comp[] {
@@ -148,11 +123,57 @@ function poly(pts: [number, number][]) {
   return pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join('');
 }
 
+function longestSegment(pts: [number, number][]) {
+  let best = 0;
+  let len = -1;
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.abs(pts[i][0] - pts[i - 1][0]) + Math.abs(pts[i][1] - pts[i - 1][1]);
+    if (l > len) {
+      len = l;
+      best = i;
+    }
+  }
+  const [x0, y0] = pts[best - 1] ?? pts[0];
+  const [x1, y1] = pts[best] ?? pts[0];
+  return { x0, y0, x1, y1, horiz: Math.abs(x1 - x0) >= Math.abs(y1 - y0), len };
+}
+
+function ticks(x: number, y: number, horiz: boolean, n: number) {
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const o = (i - (n - 1) / 2) * 5;
+    d += horiz ? `M${x + o - 3} ${y + 5}l6 -10` : `M${x - 5} ${y + o + 3}l10 -6`;
+  }
+  return d;
+}
+
 export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
   const comps = arrange(design, opt.layout);
   const byId = new Map(comps.map((c) => [c.id, c]));
   const order = [...comps].sort((a, b) => a.x - b.x || a.y - b.y);
-  const refs = new Map(order.map((c, i) => [c.id, refFor(c, i)]));
+  const refs = new Map<string, string>();
+  const names = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const c of order) {
+    const m = c.label.match(/^([A-Z]{1,3}\d{1,3})\b\s*[·:]?\s*(.*)$/);
+    if (m && !taken.has(m[1])) {
+      taken.add(m[1]);
+      refs.set(c.id, `-${m[1]}`);
+      names.set(c.id, m[2]);
+    }
+  }
+  const counters = new Map<string, number>();
+  for (const c of order) {
+    if (refs.has(c.id)) continue;
+    const letter = letterCode(DEF_MAP[c.type]);
+    let n = counters.get(letter) ?? 0;
+    do n++;
+    while (taken.has(`${letter}${n}`));
+    counters.set(letter, n);
+    taken.add(`${letter}${n}`);
+    refs.set(c.id, `-${letter}${n}`);
+    names.set(c.id, c.label);
+  }
 
   const devices: DeviceRow[] = order.map((c) => {
     const df = DEF_MAP[c.type];
@@ -166,14 +187,16 @@ export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
   });
 
   const seen = new Map<string, number>();
-  const drawn: { d: string; net: boolean; name: string; mx: number; my: number }[] = [];
+  const usedStyles = new Map<string, WireStyle>();
+  const drawn: { d: string; style: WireStyle; name: string; mx: number; my: number; tx: number; ty: number; horiz: boolean }[] = [];
   const wires: WireRow[] = [];
   design.wires.forEach((w, i) => {
     const ca = byId.get(w.a.c);
     const cb = byId.get(w.b.c);
-    const pa = ca && DEF_MAP[ca.type]?.ports.find((p) => p.id === w.a.p);
-    const pb = cb && DEF_MAP[cb.type]?.ports.find((p) => p.id === w.b.p);
-    const net = isNet(design, w.a) || isNet(design, w.b);
+    const pa = portOf(design, w.a);
+    const pb = portOf(design, w.b);
+    const style = wireStyle(pa, pb);
+    const net = style.key === 'NET';
     const name = `${net ? 'N' : 'W'}${String(i + 1).padStart(3, '0')}`;
     wires.push({
       name,
@@ -181,9 +204,10 @@ export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
       fromTerm: pa?.label ?? w.a.p,
       toRef: refs.get(w.b.c) ?? '?',
       toTerm: pb?.label ?? w.b.p,
-      type: net ? 'Network' : 'Electrical',
+      type: net ? 'Network' : style.label.split(' — ')[0],
     });
     if (!ca || !cb || !pa || !pb) return;
+    usedStyles.set(style.key, style);
     const key = `${w.a.c}.${w.a.p}`;
     const n = seen.get(key) ?? 0;
     seen.set(key, n + 1);
@@ -191,13 +215,17 @@ export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
     const pbAbs = portAbs(cb, pb);
     const da = DEF_MAP[ca.type];
     const db = DEF_MAP[cb.type];
-    const lane = drawn.filter((x) => !x.net).length % 7;
+    const lane = drawn.filter((x) => x.style.key !== 'NET').length % 7;
     const pts = net
       ? route(paAbs, pbAbs, (n % 4) * 8)
       : busRoute(paAbs, pbAbs, { l: ca.x, r: ca.x + da.w, t: ca.y, b: ca.y + da.h }, { l: cb.x, r: cb.x + db.w, t: cb.y, b: cb.y + db.h }, lane);
-    const mid = pts[Math.floor(pts.length / 2)];
-    const prev = pts[Math.max(0, Math.floor(pts.length / 2) - 1)];
-    drawn.push({ d: poly(pts), net, name, mx: (mid[0] + prev[0]) / 2, my: (mid[1] + prev[1]) / 2 - 3 });
+    const seg = longestSegment(pts);
+    const mx = (seg.x0 + seg.x1) / 2;
+    const my = (seg.y0 + seg.y1) / 2;
+    const off = Math.min(26, seg.len / 3);
+    const tx = seg.horiz ? mx + Math.sign(seg.x1 - seg.x0 || 1) * off : mx;
+    const ty = seg.horiz ? my : my + Math.sign(seg.y1 - seg.y0 || 1) * off;
+    drawn.push({ d: poly(pts), style, name, mx, my, tx, ty, horiz: seg.horiz });
   });
 
   let x0 = 0;
@@ -217,41 +245,79 @@ export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
       y1 = Math.max(y1, c.y + (df?.h ?? 80) + 150);
     }
   }
-  const areaW = 1520;
-  const areaH = 860;
-  const scale = Math.min(areaW / (x1 - x0), areaH / (y1 - y0));
-  const ox = 80 + (areaW - (x1 - x0) * scale) / 2 - x0 * scale;
-  const oy = 112 + (areaH - (y1 - y0) * scale) / 2 - y0 * scale;
+  const areaX = 48;
+  const areaW = 1250;
+  const areaH = 880;
+  const scale = Math.min(areaW / (x1 - x0), areaH / (y1 - y0), 1.6);
+  const ox = areaX + (areaW - (x1 - x0) * scale) / 2 - x0 * scale;
+  const oy = 104 + (areaH - (y1 - y0) * scale) / 2 - y0 * scale;
 
   let body = '';
   for (const w of drawn) {
-    body += `<path d="${w.d}" fill="none" stroke="#2b3c4a" stroke-width="1.6" stroke-linejoin="round" ${w.net ? 'stroke-dasharray="7 4"' : ''}/>`;
-    body += `<rect x="${w.mx - 16}" y="${w.my - 12}" width="32" height="13" fill="#fff"/>`;
-    body += `<text x="${w.mx}" y="${w.my - 2}" text-anchor="middle" font-size="9" font-family="Consolas,monospace" fill="#243f54">${w.name}</text>`;
+    const col = opt.colors ? w.style.color : INK;
+    const dash = w.style.key === 'NET' ? ' stroke-dasharray="7 4"' : '';
+    body += `<path d="${w.d}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round"${dash}/>`;
+    if (opt.colors && w.style.stripe) body += `<path d="${w.d}" fill="none" stroke="${w.style.stripe}" stroke-width="1.8" stroke-dasharray="6 6"/>`;
+    if (w.style.ticks) body += `<path d="${ticks(w.tx, w.ty, w.horiz, w.style.ticks)}" stroke="${col}" stroke-width="1.4" fill="none"/>`;
+    body += `<rect x="${w.mx - 16}" y="${w.my - 15}" width="32" height="12" fill="#fff"/>`;
+    body += `<text x="${w.mx}" y="${w.my - 5}" text-anchor="middle" font-size="9" font-family="Consolas,monospace" fill="${INK}">${w.name}</text>`;
   }
+
+  const usedSymbols = new Map<string, Comp>();
   for (const c of comps) {
     const df = DEF_MAP[c.type];
     if (!df) continue;
+    const k = symbolKey(c, df);
+    if (k && !usedSymbols.has(k)) usedSymbols.set(k, c);
     const ref = refs.get(c.id)!;
-    const title = `${ref} · ${c.label}`;
+    const title = `${ref}  ${names.get(c.id) ?? ''}`.trim();
     const sub = `${c.brand} ${c.model}`;
-    body += `<g><rect x="${c.x}" y="${c.y}" width="${df.w}" height="${df.h}" fill="#fff" stroke="#233b4d" stroke-width="1.6"/>`;
     const fit = (s: string, size: number) => (s.length * size * 0.56 > df.w ? ` textLength="${df.w}" lengthAdjust="spacingAndGlyphs"` : '');
     const t1 = title.slice(0, 48);
     const t2 = sub.slice(0, 52);
+    body += `<g><rect x="${c.x}" y="${c.y}" width="${df.w}" height="${df.h}" fill="#fff" stroke="#8796a3" stroke-width="1" stroke-dasharray="10 3 2 3"/>`;
     body += `<text x="${c.x}" y="${c.y - 22}" font-size="12" font-weight="700" fill="#142535"${fit(t1, 12)}>${xml(t1)}</text>`;
     body += `<text x="${c.x}" y="${c.y - 8}" font-size="10" fill="#3d5366"${fit(t2, 10)}>${xml(t2)}</text>`;
-    const ic = Math.min(52, df.w * 0.34, df.h * 0.4);
-    body += `<g transform="translate(${c.x + df.w / 2 - ic / 2} ${c.y + df.h / 2 - ic / 2 - 6}) scale(${ic / 64})" fill="none" stroke="#243f54" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">${SYMBOL[df.beh] ?? SYMBOL[df.icon] ?? '<rect x="16" y="16" width="32" height="32"/>'}</g>`;
-    body += `<text x="${c.x + df.w / 2}" y="${c.y + df.h / 2 + ic / 2 + 8}" text-anchor="middle" font-size="11" fill="#243f54">${xml(specLine(c))}</text>`;
+    const spec = specLine(c);
+    const s = Math.max(34, Math.min(66, df.w - 96, df.h - (spec ? 30 : 16)));
+    const sy = c.y + (df.h - s) / 2 - (spec ? 7 : 0);
+    body += `<g transform="translate(${c.x + df.w / 2 - s / 2} ${sy}) scale(${(s / 80).toFixed(4)})" fill="none" stroke="currentColor" color="${INK}" stroke-width="${(1.7 * 80 / s).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${iecSymbol(c, df)}</g>`;
+    if (spec) body += `<text x="${c.x + df.w / 2}" y="${sy + s + 13}" text-anchor="middle" font-size="10.5" fill="${INK}">${xml(spec)}</text>`;
     for (const p of df.ports) {
-      const inward = p.side === 'l' ? 10 : p.side === 'r' ? -10 : 0;
-      const vward = p.side === 't' ? 12 : p.side === 'b' ? -8 : -12;
+      const inward = p.side === 'l' ? 8 : p.side === 'r' ? -8 : 0;
+      const vward = p.side === 't' ? 13 : p.side === 'b' ? -6 : 3.5;
       const anchor = p.side === 'l' ? 'start' : p.side === 'r' ? 'end' : 'middle';
-      body += `<circle cx="${c.x + p.x}" cy="${c.y + p.y}" r="3.2" fill="#fff" stroke="#233b4d" stroke-width="1.4"/>`;
-      body += `<text x="${c.x + p.x + inward}" y="${c.y + p.y + vward}" text-anchor="${anchor}" font-size="9" font-family="Consolas,monospace" fill="#243f54">${xml(p.label)}</text>`;
+      body += `<circle cx="${c.x + p.x}" cy="${c.y + p.y}" r="3" fill="#fff" stroke="${INK}" stroke-width="1.3"/>`;
+      body += `<text x="${c.x + p.x + inward}" y="${c.y + p.y + vward}" text-anchor="${anchor}" font-size="9" font-family="Consolas,monospace" fill="${INK}">${xml(p.label)}</text>`;
     }
     body += '</g>';
+  }
+
+  const legendX = 1322;
+  const rows = usedSymbols.size + usedStyles.size + 2;
+  const step = Math.min(30, (990 - 112) / Math.max(rows, 1));
+  const ic = Math.min(26, step * 0.86);
+  let legend = `<text x="${legendX + 14}" y="108" font-size="13" font-weight="700" fill="#142535">LEGEND · IEC 60617</text>`;
+  let ly = 118;
+  for (const [k, c] of usedSymbols) {
+    const df = DEF_MAP[c.type];
+    legend += `<g transform="translate(${legendX + 14} ${ly}) scale(${(ic / 80).toFixed(4)})" fill="none" stroke="currentColor" color="${INK}" stroke-width="${(1.4 * 80 / ic).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${iecSymbol(c, df)}</g>`;
+    legend += `<text x="${legendX + 22 + ic}" y="${ly + ic / 2 + 4}" font-size="10.5" fill="#142535">${xml(NAMES[k] ?? df.name)}</text>`;
+    ly += step;
+  }
+  if (usedStyles.size) {
+    ly += step * 0.3;
+    legend += `<text x="${legendX + 14}" y="${ly + 10}" font-size="11" font-weight="700" fill="#142535">${opt.colors ? 'CONDUCTORS · IEC 60445 / 60204-1' : 'CONDUCTORS'}</text>`;
+    ly += step * 0.9;
+    for (const st of usedStyles.values()) {
+      const col = opt.colors ? st.color : INK;
+      const yy = ly + ic / 2;
+      legend += `<path d="M${legendX + 14} ${yy}h${ic + 4}" stroke="${col}" stroke-width="2.2"${st.key === 'NET' ? ' stroke-dasharray="6 3"' : ''}/>`;
+      if (opt.colors && st.stripe) legend += `<path d="M${legendX + 14} ${yy}h${ic + 4}" stroke="${st.stripe}" stroke-width="2.2" stroke-dasharray="5 5"/>`;
+      if (st.ticks) legend += `<path d="${ticks(legendX + 16 + ic / 2, yy, true, st.ticks)}" stroke="${col}" stroke-width="1.3" fill="none"/>`;
+      legend += `<text x="${legendX + 26 + ic}" y="${yy + 4}" font-size="10.5" fill="#142535">${xml(opt.colors ? st.label : st.label.split(' — ')[0])}</text>`;
+      ly += step;
+    }
   }
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -259,18 +325,19 @@ export function buildDrawing(design: Design, opt: DrawingOptions): DrawingDoc {
 <rect width="1680" height="1188" fill="#fff"/>
 <rect x="28" y="28" width="1624" height="1132" fill="none" stroke="#203647" stroke-width="2"/>
 <text x="52" y="68" font-family="Arial,Tahoma,sans-serif" font-size="22" font-weight="700" fill="#142535">${xml(opt.title)}</text>
-<text x="1628" y="66" text-anchor="end" font-family="Arial,Tahoma,sans-serif" font-size="13" fill="#142535">ELECTRICAL WIRING · ${xml(opt.number)}</text>
-<path d="M28 84h1624" stroke="#203647" fill="none"/>
+<text x="1628" y="66" text-anchor="end" font-family="Arial,Tahoma,sans-serif" font-size="13" fill="#142535">ELECTRICAL SCHEMATIC · ${xml(opt.number)}</text>
+<path d="M28 84h1624M${legendX} 84V1004" stroke="#203647" fill="none"/>
 <g transform="translate(${ox.toFixed(1)} ${oy.toFixed(1)}) scale(${scale.toFixed(4)})" font-family="Arial,Tahoma,sans-serif">${body}</g>
+<g font-family="Arial,Tahoma,sans-serif">${legend}</g>
 <path d="M28 1004h1624M28 1072h1624M1088 1004v156M1408 1004v156" stroke="#203647" fill="none"/>
-<text x="48" y="1028" font-family="Arial,sans-serif" font-size="13" fill="#142535">Solid line = electrical wire · Dashed line = network link · Terminal circles = connections</text>
-<text x="48" y="1052" font-family="Arial,sans-serif" font-size="12" fill="#142535">Crossing lines without terminal circles are not connected. Reference labels match the connection schedule.</text>
+<text x="48" y="1028" font-family="Arial,Tahoma,sans-serif" font-size="11.5" fill="#142535" textLength="1020" lengthAdjust="spacingAndGlyphs">Symbols IEC 60617 · Instruments ISA 5.1 · Designation IEC 81346-2: -Q switching, -F protection, -K control, -S manual, -B sensor, -M motor, -P indicator, -T converter, -X terminal</text>
+<text x="48" y="1052" font-family="Arial,Tahoma,sans-serif" font-size="11.5" fill="#142535">Dash-dot frame = device boundary · Terminal circles = connection points · Crossing lines without a dot are not connected · /// = three-phase conductors</text>
 <text x="1104" y="1028" font-family="Arial,sans-serif" font-size="11" fill="#142535">DOCUMENT</text>
 <text x="1104" y="1054" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#142535">${xml(opt.number)}</text>
 <text x="1424" y="1028" font-family="Arial,sans-serif" font-size="11" fill="#142535">REVISION / DATE</text>
 <text x="1424" y="1054" font-family="Arial,sans-serif" font-size="16" fill="#142535">${xml(opt.revision)} / ${xml(opt.date)}</text>
 <text x="48" y="1102" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#142535">WireLab</text>
-<text x="48" y="1126" font-family="Arial,sans-serif" font-size="12" fill="#142535">Generic device models · Verify manufacturer terminals before installation.</text>
+<text x="48" y="1126" font-family="Arial,sans-serif" font-size="12" fill="#142535">Generic device models · Verify manufacturer terminals and local code (วสท./EIT) before installation.</text>
 <text x="1104" y="1102" font-family="Arial,sans-serif" font-size="12" fill="#142535">${comps.length} devices / ${design.wires.length} connections</text>
 <text x="1424" y="1102" font-family="Arial,sans-serif" font-size="12" fill="#142535">A3 LANDSCAPE · SHEET 1</text>
 <text x="1424" y="1126" font-family="Arial,sans-serif" font-size="12" fill="#142535">Not to scale</text>

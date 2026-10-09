@@ -245,7 +245,7 @@ button { font-family: inherit; }
 .draw-dialog { width: min(1180px, 100%); background: #171e29; border: 1px solid #4b6078; border-radius: 14px; padding: 18px 20px 28px; color: var(--text); }
 .draw-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .draw-head h2 { margin: 0; font-size: 22px; }
-.draw-fields { display: grid; grid-template-columns: 2fr 1fr .6fr 1.4fr; gap: 12px; margin-top: 14px; }
+.draw-fields { display: grid; grid-template-columns: 2fr 1fr .6fr 1.3fr 1.4fr; gap: 12px; margin-top: 14px; }
 .draw-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #a2b6cb; }
 .draw-preview { background: #fff; border-radius: 4px; overflow: auto; margin-top: 8px; }
 .draw-preview svg { display: block; width: 100%; height: auto; }

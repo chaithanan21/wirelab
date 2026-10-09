@@ -16,10 +16,11 @@ export function DrawingDialog({ design, onClose }: Props) {
   const [number, setNumber] = useState('WL-001');
   const [revision, setRevision] = useState('A');
   const [layout, setLayout] = useState<'plan' | 'grid'>('plan');
+  const [colors, setColors] = useState(true);
   const date = useMemo(() => new Date().toLocaleDateString('en-GB'), []);
   const doc = useMemo(
-    () => buildDrawing(design, { title: title.trim() || 'Electrical wiring diagram', number: number.trim() || 'WL-001', revision: revision.trim() || 'A', layout, date }),
-    [design, title, number, revision, layout, date],
+    () => buildDrawing(design, { title: title.trim() || 'Electrical wiring diagram', number: number.trim() || 'WL-001', revision: revision.trim() || 'A', layout, colors, date }),
+    [design, title, number, revision, layout, colors, date],
   );
 
   const download = () => {
@@ -30,7 +31,7 @@ export function DrawingDialog({ design, onClose }: Props) {
   };
 
   const print = () => {
-    const head = ['Wire', 'From', 'Terminal', 'To', 'Terminal', 'Type'];
+    const head = ['Wire', 'From', 'Terminal', 'To', 'Terminal', 'Conductor'];
     const devHead = ['Ref', 'Tag', 'Brand', 'Model', 'Terminals'];
     const table = (headers: string[], rows: string[][]) =>
       `<table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
@@ -73,8 +74,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid 
               <option value="grid">จัดอุปกรณ์เป็นแถว</option>
             </select>
           </label>
+          <label>
+            สีสาย
+            <select className="input" value={colors ? 'iec' : 'mono'} onChange={(e) => setColors(e.target.value === 'iec')}>
+              <option value="iec">ตาม IEC 60445 / 60204-1</option>
+              <option value="mono">ขาวดำ</option>
+            </select>
+          </label>
         </div>
-        <p className="note">PDF: เลือก Save as PDF ในหน้าต่างพิมพ์ · แบบ A3 แนวนอน รวมตารางสายและอุปกรณ์ · สายทึบคือไฟฟ้า เส้นประคือ Network</p>
+        <p className="note">สัญลักษณ์ตาม IEC 60617 · รหัสอุปกรณ์ตาม IEC 81346-2 (-Q, -K, -F, -M…) · เครื่องวัดตาม ISA 5.1 · มีตารางสัญลักษณ์ (Legend) ในแบบ · PDF: เลือก Save as PDF ในหน้าต่างพิมพ์ (A3 แนวนอน)</p>
         {!design.comps.length ? (
           <div className="empty">เพิ่มอุปกรณ์ลงแปลนก่อนส่งออก</div>
         ) : (
@@ -83,7 +91,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid 
             <h3 className="draw-h">Connection schedule</h3>
             <table className="tbl">
               <thead>
-                <tr><th>Wire</th><th>From</th><th>Terminal</th><th>To</th><th>Terminal</th><th>Type</th></tr>
+                <tr><th>Wire</th><th>From</th><th>Terminal</th><th>To</th><th>Terminal</th><th>Conductor</th></tr>
               </thead>
               <tbody>
                 {doc.wires.map((w) => (
